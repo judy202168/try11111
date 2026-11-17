@@ -39,7 +39,7 @@ def proposed(sandbox, context, first_counts):
         if row.get('status')!='pending':continue
         deal=deals.get(row['entity_id']) if row['entity_type']=='deals' else None
         drafts.append({'id':row['id'],'contact_id':deal.get('contact_id') if deal else row['entity_id'],
-                       'opportunity_id':deal['id'] if deal else None,'owner':row.get('owner') or row.get('context',{}).get('record',{}).get('owner'),
+                       'opportunity_id':deal['id'] if deal else None,'owner':row.get('review_owner') or row.get('owner'),'context_owner':row.get('context',{}).get('record',{}).get('owner'),
                        'subject':row.get('subject',''),'body':row.get('body',''),'status':row['status']})
     actions=[{'entity_type':kind,'entity_id':r['id'],'owner':r.get('owner'),'action':r.get('suggested_next_action')} for kind in ('contacts','deals') for r in sandbox.rows[kind] if r.get('suggested_next_action')]
     return {'drafts':drafts,'tasks':deepcopy(sandbox.rows['tasks']),'blocked_reasons':blocks,'suggested_actions':actions,
