@@ -11,7 +11,13 @@ import time
 def register(app, db, rpc=None):
     @app.get('/api/followups')
     def list_followups():
-        return jsonify(drafts=db('followups'),reviews=db('suggestion_reviews'),configured=bool(os.getenv('OPENROUTER_API_KEY')),schedule='Daily at 8:00 AM America/Los_Angeles',stall_days=int(os.getenv('STALL_DAYS','7')))
+        drafts=db('followups')
+        for row in drafts:
+            safe=row.get('final_suggestion') or (row.get('guardrail_result') or {}).get('safe_suggestion') or {}
+            row['body']=safe.get('body',safe.get('summary',''))
+            row['subject']=safe.get('subject','Meeting update' if row.get('workflow_type')=='meeting_update' else 'Unverified AI suggestion')
+            row['next_action']=safe.get('next_action','Check the linked information before using this suggestion.')
+        return jsonify(drafts=drafts,reviews=db('suggestion_reviews'),configured=bool(os.getenv('OPENROUTER_API_KEY')),schedule='Daily at 8:00 AM America/Los_Angeles',stall_days=int(os.getenv('STALL_DAYS','7')))
 
     @app.post('/api/followups/run')
     def run_followups():
@@ -43,20 +49,26 @@ def register(app, db, rpc=None):
         if row.get('original_suggestion'):
             db('followups','PATCH',{'status':'pending','error':None},draft_id)
             return jsonify(ok=True)
+        from guardrail_service import linked_context,record_assessment
+        from guardrails import assess,prepare,GuardedSuggestion,AgentStore
+        context=linked_context(db,row);workflow=row.get('workflow_type','followup')
         started=time.perf_counter();calls=[]
         with use_prompts(active_prompts(db)):
             try:
+                preflight=assess(context,None,workflow)
                 with collect_calls() as calls:
-                    if row.get('workflow_type')=='meeting_update':
+                    if not preflight['can_generate']:draft=GuardedSuggestion(preflight)
+                    elif workflow=='meeting_update':
                         from meeting_updates import generate as generate_meeting
-                        draft=generate_meeting(row['context'])
-                        values={'original_suggestion':draft,'body':draft['summary'],'next_action':draft['next_action']}
-                    else:
-                        draft=generate(row['context']);values={**draft,'original_suggestion':draft}
-                workflow=row.get('workflow_type','followup')
+                        draft=generate_meeting(context)
+                    else:draft=generate(context)
+                if not isinstance(draft,GuardedSuggestion):draft=prepare(context,draft,workflow)
+                guarded=draft.assessment;guarded['audit_event_ids']=record_assessment(db,guarded,draft_id)
+                values={'original_suggestion':guarded['proposed_output'],'guardrail_result':guarded,'body':draft.get('summary',draft.get('body','')),'next_action':draft['next_action']}
+                if workflow=='followup':values['subject']=draft['subject']
                 db('followups','PATCH',{**values,'status':'pending',**metadata(calls,started,workflow)},draft_id)
-                if workflow=='followup':db(row['entity_type'],'PATCH',{'suggested_next_action':draft['next_action']},row['entity_id'])
                 return jsonify(ok=True)
             except Exception as error:
-                db('followups','PATCH',{'status':'failed','error':str(error)[:500],**metadata(calls,started,row.get('workflow_type','followup'))},draft_id)
+                record_assessment(db,assess(context,{'model_error':str(error)},workflow),draft_id)
+                db('followups','PATCH',{'status':'failed','error':str(error)[:500],**metadata(calls,started,workflow)},draft_id)
                 raise RuntimeError(str(error))
