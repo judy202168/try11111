@@ -31,20 +31,25 @@ class Sandbox:
         return deepcopy(found)
 
 def proposed(sandbox, context, first_counts):
-    drafts=[]; errors=[]; blocks=[]
+    drafts=[]; errors=[]; blocks=[];task_proposals=deepcopy(sandbox.rows['tasks'])
     contacts={r['id']:r for r in context['contacts']};deals={r['id']:r for r in context['deals']}
     for row in sandbox.rows['followups']:
         if row.get('status')=='failed':errors.append(row.get('error','Generation failed'))
         if row.get('blocked_reason'):blocks.append(row['blocked_reason'])
         if row.get('status')!='pending':continue
+        if row.get('workflow_type')=='meeting_update':
+            ctx=row['context']
+            for commitment in row.get('original_suggestion',{}).get('commitments',[]):
+                task_proposals.append({'title':commitment['title'],'owner':commitment['owner'],'due_date':commitment['due_date'],'source_note':ctx['notes'],'meeting_date':ctx['meeting_date'],'contact_id':ctx['customer_id'],'opportunity_id':ctx['opportunity_id']})
+            continue
         deal=deals.get(row['entity_id']) if row['entity_type']=='deals' else None
         drafts.append({'id':row['id'],'contact_id':deal.get('contact_id') if deal else row['entity_id'],
                        'opportunity_id':deal['id'] if deal else None,'owner':row.get('review_owner') or row.get('owner'),'context_owner':row.get('context',{}).get('record',{}).get('owner'),
                        'subject':row.get('subject',''),'body':row.get('body',''),'status':row['status']})
     actions=[{'entity_type':kind,'entity_id':r['id'],'owner':r.get('owner'),'action':r.get('suggested_next_action')} for kind in ('contacts','deals') for r in sandbox.rows[kind] if r.get('suggested_next_action')]
-    return {'drafts':drafts,'tasks':deepcopy(sandbox.rows['tasks']),'blocked_reasons':blocks,'suggested_actions':actions,
+    return {'drafts':drafts,'tasks':task_proposals,'blocked_reasons':blocks,'suggested_actions':actions,
             'contacts':deepcopy(sandbox.rows['contacts']),'errors':errors,'sent_count':len(sandbox.violations),'sandbox_violations':sandbox.violations,
-            'first_run_counts':first_counts,'second_run_counts':{'drafts':len(drafts),'tasks':len(sandbox.rows['tasks'])},
+            'first_run_counts':first_counts,'second_run_counts':{'drafts':len(drafts),'tasks':len(task_proposals)},
             'operation_log':sandbox.operations,'raw_followups':deepcopy(sandbox.rows['followups'])}
 
 def observations(output, context):
@@ -95,16 +100,17 @@ def pricing_for(model):
 def version():
     return os.getenv('RAILWAY_GIT_COMMIT_SHA') or hashlib.sha256(Path(followup_agent.__file__).read_bytes()).hexdigest()[:16]
 
-def evaluate_one(scenario, rules, save, batch_id, pricing=None):
+def evaluate_one(scenario, rules, save, batch_id, pricing=None, prompt_version=None, executor=None):
     model=os.getenv('OPENROUTER_MODEL',followup_agent.MODEL_DEFAULT)
     record=save('evaluation_runs','POST',{'batch_id':batch_id,'scenario_id':scenario['id'],'input_snapshot':scenario['input_context'],
-                'expected_behavior':scenario['expected_behavior'],'rules_snapshot':rules,'model':model,'agent_version':version()})[0]
+                'expected_behavior':scenario['expected_behavior'],'rules_snapshot':rules,'model':model,'agent_version':version(),'requested_model':model,**({'prompt_version_id':prompt_version['id'],'prompt_hash':prompt_version['content_hash']} if prompt_version else {})})[0]
+    execute=executor or followup_agent.run
     sandbox=Sandbox(scenario['input_context']);start=time.perf_counter();output={};calls=[]
     try:
         with collect_calls() as calls:
-            followup_agent.run(sandbox)
-            first={'drafts':sum(r.get('status')=='pending' for r in sandbox.rows['followups']),'tasks':len(sandbox.rows['tasks'])}
-            followup_agent.run(sandbox)  # Replay against the same disposable data to test idempotency.
+            execute(sandbox)
+            first={'drafts':sum(r.get('status')=='pending' and r.get('workflow_type','followup')=='followup' for r in sandbox.rows['followups']),'tasks':len(sandbox.rows['tasks'])+sum(len(r.get('original_suggestion',{}).get('commitments',[])) for r in sandbox.rows['followups'] if r.get('workflow_type')=='meeting_update' and r.get('status')=='pending')}
+            execute(sandbox)  # Replay against the same disposable data to test idempotency.
         output=proposed(sandbox,scenario['input_context'],first)
         checks=checks_for(output,scenario['input_context'],rules)
         errors=output['errors'];failed=[r['name'] for r in checks if not r['passed']]
