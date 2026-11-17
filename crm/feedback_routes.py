@@ -47,7 +47,7 @@ def review_suggestion(db,rpc,suggestion_id):
 
 def register(app,db,rpc,limiter):
     @app.errorhandler(FeedbackError)
-    def feedback_error(error):return jsonify(error=error.message),error.status
+    def feedback_error(error):return jsonify(error=error.message,code='REVIEWER_AUTH_REQUIRED' if error.status==401 else 'FEEDBACK_ERROR'),error.status
 
     @app.get('/api/reviewer')
     def reviewer_state():
@@ -93,7 +93,7 @@ def register(app,db,rpc,limiter):
         for key in options:
             chosen=request.args.get(key,'')
             if chosen:rows=[r for r in rows if (r.get(key) or 'Unknown')==chosen]
-        data=report(rows);data['filter_options']=options;data.update(reviews=rows,reasons=REASONS,high_risk_reasons=sorted(HIGH_RISK),days=int(days),summaries=db('weekly_quality_summaries',extra_params={'limit':30}))
+        data=report(rows);data['filter_options']=options;data.update(reviews=rows,reason_options=REASONS,high_risk_reasons=sorted(HIGH_RISK),days=int(days),summaries=db('weekly_quality_summaries',extra_params={'limit':30}))
         legacy=db('followups',extra_params={'status':'in.(approved,rejected)'})
         reviewed_ids={r['suggestion_id'] for r in all_rows(db,'suggestion_reviews')}
         data['legacy_decisions_excluded']=sum(r['id'] not in reviewed_ids for r in legacy)
