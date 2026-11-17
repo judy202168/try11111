@@ -27,7 +27,7 @@ The backend uses the Supabase publishable key with a separate 256-bit database t
 
 ## Deployment
 
-GitHub repository: https://github.com/judy202168/try11111. The GitHub source is ready on main. The intended Railway source uses /crm as root directory; the reviewed settings are in ../.railway/deployment-settings.json. Source cutover is pending Railway GitHub integration access; the existing image deployment remains live. The Dockerfile installs dependencies at image build time. start.sh launches Gunicorn by default; APP_MODE=worker runs the daily agent scheduler and exits. The worker retains its hourly cron with an 8 AM America/Los_Angeles gate.
+GitHub repository: https://github.com/judy202168/try11111. The GitHub source is ready on main. The intended Railway source uses /crm as root directory; the reviewed settings are in ../.railway/deployment-settings.json. Both services are connected to main; pushes deploy automatically. The Dockerfile installs dependencies at image build time. start.sh launches Gunicorn by default; APP_MODE=worker runs the daily agent scheduler and exits. The worker retains its hourly cron with an 8 AM America/Los_Angeles gate.
 
 Keep secrets in Railway service variables. Web settings include SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, CRM_DATABASE_TOKEN, CRM_PASSWORD, SECRET_KEY, and OPENROUTER_API_KEY. Set COOKIE_SECURE=true in production. The scheduled worker references the web service's database and OpenRouter variables. Existing database records and credentials are preserved when changing deployment sources. APP_BUNDLE_B64 is obsolete once the GitHub build is active.
 
