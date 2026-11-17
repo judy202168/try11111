@@ -37,10 +37,21 @@ def review_suggestion(db,rpc,suggestion_id):
     rows=db('followups',record_id=identity)
     if not rows or rows[0]['status']!='pending':raise FeedbackError('Suggestion is no longer pending.',409)
     row=rows[0];final=None
+    from guardrail_service import check_suggestion,record_assessment
+    from guardrails import assess
+    guarded=check_suggestion(db,row)
+    if action!='reject' and not guarded['can_approve']:raise FeedbackError(guarded['reason']+' '+guarded['next_action'],409)
     if action=='edit_approve':
         try:final=validate_suggestion(payload.get('final_suggestion'),row['workflow_type'],row['context'].get('notes') if row['workflow_type']=='meeting_update' else None)
         except (ValueError,TypeError) as error:raise FeedbackError(str(error))
-        if final==row['original_suggestion']:raise FeedbackError('Make an edit before choosing Edit and approve.')
+        human_check=assess(guarded['model_input'],final,row['workflow_type'])
+        if human_check['invention_attempts']:
+            record_assessment(db,human_check,identity)
+            raise FeedbackError('The edited facts are not supported by the linked source. Confirm the source information and check again.',409)
+        if row['workflow_type']=='meeting_update' and final['commitments']!=human_check['safe_suggestion']['commitments']:
+            record_assessment(db,human_check,identity)
+            raise FeedbackError('Commitment owners and dates must match explicit source evidence; unknown values must remain blank.',409)
+        if final==guarded['safe_suggestion']:raise FeedbackError('Make an edit before choosing Edit and approve.')
     result=rpc('crm_record_suggestion_review',{'p_suggestion':identity,'p_reviewer':actor['id'],'p_action':action,'p_reason':reason,'p_note':note,'p_final':final})
     if result.get('error'):raise FeedbackError(result['error'],409)
     return jsonify(result)
@@ -121,7 +132,7 @@ def register(app,db,rpc,limiter):
             if not isinstance(meeting_date,str) or date.fromisoformat(meeting_date).isoformat()!=meeting_date:raise ValueError()
         except (ValueError,TypeError):raise FeedbackError('Use an exact meeting date.')
         if not isinstance(notes,str) or not 1<=len(notes.strip())<=8000:raise FeedbackError('Enter meeting notes of at most 8,000 characters.')
-        context={'customer_id':customer_id,'opportunity_id':opportunity_id,'meeting_date':meeting_date,'notes':notes,'contact':{k:contacts[0].get(k) for k in ('name','company','role','owner')},'record':{k:(opportunity or contacts[0]).get(k) for k in ('title','name','company','owner','value','stage')},'generated_by':actor['id']}
+        context={'customer_id':customer_id,'opportunity_id':opportunity_id,'meeting_date':meeting_date,'notes':notes,'contact':{k:contacts[0].get(k) for k in ('id','name','company','role','owner')},'record':{k:(opportunity or contacts[0]).get(k) for k in ('id','contact_id','title','name','company','owner','value','stage')},'generated_by':actor['id']}
         from meeting_updates import propose
         with use_prompts(active_prompts(db)):row=propose(db,context,actor['team'])
         return jsonify(suggestion=row)
