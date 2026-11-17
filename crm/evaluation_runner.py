@@ -14,7 +14,7 @@ from evaluation_telemetry import collect_calls, cost_summary
 class Sandbox:
     def __init__(self, context):
         self.rows={k:deepcopy(context.get(k,[])) for k in ('contacts','deals','tasks','followups')}
-        self.operations=[];self.violations=[]
+        self.operations=[];self.violations=[];self.guardrail_events=[]
     def __call__(self, resource, method='GET', data=None, record_id=None, extra_params=None):
         if resource not in self.rows or method not in ('GET','POST','PATCH'):
             self.violations.append({'resource':resource,'method':method})
@@ -36,17 +36,20 @@ def proposed(sandbox, context, first_counts):
     for row in sandbox.rows['followups']:
         if row.get('status')=='failed':errors.append(row.get('error','Generation failed'))
         if row.get('blocked_reason'):blocks.append(row['blocked_reason'])
+        blocks.extend(m['reason'] for m in row.get('guardrail_result',{}).get('missing_information',[]) if m['field']=='email')
         if row.get('status')!='pending':continue
         if row.get('workflow_type')=='meeting_update':
             ctx=row['context']
-            for commitment in row.get('original_suggestion',{}).get('commitments',[]):
+            for commitment in (row.get('guardrail_result',{}).get('safe_suggestion') or row.get('original_suggestion') or {}).get('commitments',[]):
                 task_proposals.append({'title':commitment['title'],'owner':commitment['owner'],'due_date':commitment['due_date'],'source_note':ctx['notes'],'meeting_date':ctx['meeting_date'],'contact_id':ctx['customer_id'],'opportunity_id':ctx['opportunity_id']})
             continue
+        if not row.get('body'):continue
         deal=deals.get(row['entity_id']) if row['entity_type']=='deals' else None
         drafts.append({'id':row['id'],'contact_id':deal.get('contact_id') if deal else row['entity_id'],
                        'opportunity_id':deal['id'] if deal else None,'owner':row.get('review_owner') or row.get('owner'),'context_owner':row.get('context',{}).get('record',{}).get('owner'),
                        'subject':row.get('subject',''),'body':row.get('body',''),'status':row['status']})
     actions=[{'entity_type':kind,'entity_id':r['id'],'owner':r.get('owner'),'action':r.get('suggested_next_action')} for kind in ('contacts','deals') for r in sandbox.rows[kind] if r.get('suggested_next_action')]
+    actions.extend({'entity_type':r['entity_type'],'entity_id':r['entity_id'],'owner':r.get('context',{}).get('record',{}).get('owner'),'action':r['next_action']} for r in sandbox.rows['followups'] if r.get('next_action'))
     return {'workflow':next((r.get('workflow_type','followup') for r in sandbox.rows['followups']), 'followup'),'drafts':drafts,'tasks':task_proposals,'blocked_reasons':blocks,'suggested_actions':actions,
             'contacts':deepcopy(sandbox.rows['contacts']),'errors':errors,'sent_count':len(sandbox.violations),'sandbox_violations':sandbox.violations,
             'first_run_counts':first_counts,'second_run_counts':{'drafts':len(drafts),'tasks':len(task_proposals)},
@@ -109,7 +112,7 @@ def evaluate_one(scenario, rules, save, batch_id, pricing=None, prompt_version=N
     try:
         with collect_calls() as calls:
             execute(sandbox)
-            first={'drafts':sum(r.get('status')=='pending' and r.get('workflow_type','followup')=='followup' for r in sandbox.rows['followups']),'tasks':len(sandbox.rows['tasks'])+sum(len(r.get('original_suggestion',{}).get('commitments',[])) for r in sandbox.rows['followups'] if r.get('workflow_type')=='meeting_update' and r.get('status')=='pending')}
+            first={'drafts':sum(r.get('status')=='pending' and bool(r.get('body')) and r.get('workflow_type','followup')=='followup' for r in sandbox.rows['followups']),'tasks':len(sandbox.rows['tasks'])+sum(len((r.get('guardrail_result',{}).get('safe_suggestion') or r.get('original_suggestion') or {}).get('commitments',[])) for r in sandbox.rows['followups'] if r.get('workflow_type')=='meeting_update' and r.get('status')=='pending')}
             execute(sandbox)  # Replay against the same disposable data to test idempotency.
         output=proposed(sandbox,scenario['input_context'],first)
         checks=checks_for(output,scenario['input_context'],rules)
