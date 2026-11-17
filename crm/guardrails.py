@@ -133,5 +133,12 @@ class AgentStore:
         if method=='GET' and resource in ('contacts','deals','tasks','followups'):
             if record_id is None and extra_params is None:return self._store(resource)
             return self._store(resource,method,data,record_id,extra_params)
-        if method in ('POST','PATCH') and resource in ('followups','guardrail_events'):return self._store(resource,method,data,record_id)
+        if resource=='guardrail_events' and method=='POST':return self._store(resource,method,data,record_id)
+        if resource=='followups' and method in ('POST','PATCH'):
+            value=data or {}
+            if value.get('status','generating') not in ('generating','pending','failed') or set(value)&{'final_suggestion','reviewed_at','review_note'}:
+                result=action_policy('record_human_review',value);result['reason']='Autonomous agents cannot approve, reject, edit human review evidence, or authorize an external action.';raise PolicyBlocked(result)
+            if value.get('status')=='pending' and (value.get('guardrail_result') or {}).get('policy_version')!=POLICY_VERSION:
+                result=action_policy('publish_unverified_suggestion',value);result['reason']='A server guardrail check is required before a suggestion can enter the review queue.';raise PolicyBlocked(result)
+            return self._store(resource,method,data,record_id)
         raise PolicyBlocked(action_policy('delete_crm' if method=='DELETE' else 'create_external_record',{'resource':resource,'method':method,'data':data}))
