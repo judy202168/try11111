@@ -96,4 +96,6 @@ User request:
 
 Requested deliverables: supabase_schema.sql, .env.example, Railway configuration, GitHub deployment source, and Supabase-backed Flask endpoints.
 
-The existing Flask endpoints already persist records in Supabase. Keep that storage and its data intact. Publish source to judy202168/try11111, build both Railway services from /crm, use Dockerfile/start.sh and railway.toml, and retain server-only credentials as Railway variables. The schema file is for a fresh database; never replace the existing live token hash with its setup placeholder.
+The existing Flask endpoints already persist records in Supabase. Keep that storage and its data intact. Publish source to judy202168/try11111, build both Railway services from /crm, use Dockerfile/start.sh and the secret-free .railway/deployment-settings.json manifest, and retain server-only credentials as Railway variables. The schema file is for a fresh database; never replace the existing live token hash with its setup placeholder.
+
+Cutover status: code uploaded to GitHub; Railway rejected repository access. The existing deployed app remains active. railway.toml was replaced by a documented plugin settings manifest because Railway reports Config as Code is deprecated. The live integration smoke test passed with Supabase persistence and anonymous access denial.
