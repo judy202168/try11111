@@ -87,3 +87,13 @@ Deliverable: this repository-root file, **agent instructions.md**. Preserve this
 ## Continuing-agent prompt
 
 Maintain Orbit CRM using the requested single-HTML/Tailwind/inline-JavaScript frontend, Flask backend, Supabase storage, and Railway deployment. Use the Railway and Supabase plugins for infrastructure operations. Keep follow-up generation autonomous each morning and all message decisions human-approved. Never automatically send email. Save all prior and future build instructions given to the repository in the Markdown file named **agent instructions.md**, keeping credentials out of GitHub.
+
+## Step 4 — Supabase, GitHub, and Railway source deployment
+
+User request:
+
+> Replace JSON storage with Supabase. Connect the project to GitHub and deploy it to Railway. Add an .env.example file with placeholders. Keep all secrets server-side.
+
+Requested deliverables: supabase_schema.sql, .env.example, Railway configuration, GitHub deployment source, and Supabase-backed Flask endpoints.
+
+The existing Flask endpoints already persist records in Supabase. Keep that storage and its data intact. Publish source to judy202168/try11111, build both Railway services from /crm, use Dockerfile/start.sh and railway.toml, and retain server-only credentials as Railway variables. The schema file is for a fresh database; never replace the existing live token hash with its setup placeholder.
