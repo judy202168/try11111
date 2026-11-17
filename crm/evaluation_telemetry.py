@@ -7,9 +7,11 @@ _calls=ContextVar('evaluation_model_calls',default=None)
 
 @contextmanager
 def collect_calls():
-    calls=[]; token=_calls.set(calls)
+    parent=_calls.get();calls=[]; token=_calls.set(calls)
     try: yield calls
-    finally: _calls.reset(token)
+    finally:
+        _calls.reset(token)
+        if parent is not None:parent.extend(calls)
 
 def record_response(response, seconds, requested_model):
     calls=_calls.get()
