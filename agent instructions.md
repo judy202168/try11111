@@ -119,3 +119,15 @@ Additional user instruction: rename the Followups tab to “Followup Agent”.
 Implementation: runs the existing agent with disposable fixture storage; all persistent writes are limited to evaluation tables. Tests include positive and deliberately incorrect outputs. Rule and fixture snapshots preserve historical evidence, while current rules can be edited. Baseline evaluation findings should be reported honestly and do not authorize automatic production outreach.
 
 Verification: 25 automated tests passed. Live OpenRouter runs were saved for scenarios 1, 5, and 7, followed by a UI-triggered scenario 1 replay. All baseline scenarios exposed business gaps in the current agent. Production CRM and follow-up fingerprints were unchanged during the suite; anonymous evaluation-table reads were denied. Rule editing and run-history updates were verified in the deployed UI. Owner routing requires a real draft assignment; context metadata alone must not be treated as routing.
+
+## Step 6 — Structured business feedback loop
+
+User objective: improve CRM follow-ups and meeting updates while protecting customer trust, data accuracy and employee accountability.
+
+For every AI suggestion, add Approve, Reject, and Edit and approve. Rejection/editing requires one reason: Incorrect tone; Incorrect customer or business context; Wrong owner; Wrong deadline; Hallucinated or unsupported information; Too generic, impersonal or sales-oriented; Not useful or actionable; Other. Reviewer note is optional.
+
+Persist the original AI suggestion; final approved edited version; action/reason/note; customer/opportunity/workflow context; reviewer/timestamp; model/prompt version; response time and estimated cost. Add reporting for approval/rejection/edit rates, common reasons, high-risk hallucinations/wrong owners/deadlines, workflow/team/model/prompt dimensions, time trends, and recent failures requiring investigation.
+
+Generate weekly summaries of the top three observed failure patterns, business risks, and recommended prompt/context/evaluation changes. Never automatically alter the production prompt. Require human approval, version every change, and run evaluations before release.
+
+Implementation includes named reviewer credentials and administrator bootstrap, meeting-update proposals, atomic immutable review evidence, a Business Quality tab, deterministic weekly reporting on the Monday morning worker, immutable per-workflow prompt versions, request-scoped candidate evaluation, and a database-enforced release gate requiring all three scenarios/all 17 canonical checks on current code/model. Shared workspace access alone cannot submit attributed decisions. Initial follow-up prompt text is preserved. No real messages are sent, and meeting proposals do not automatically apply CRM changes.
