@@ -1,0 +1,10 @@
+{
+  "projectId": "e5c0646b-5474-42ba-91a6-4ededee86a1a",
+  "environmentId": "4585cdf7-6787-4b51-9a0a-416590b161de",
+  "repository": "judy202168/try11111",
+  "branch": "main",
+  "services": [
+    {"serviceId": "4c955ada-ab69-4741-9d28-a5203f94498f", "name": "orbit-crm", "rootDirectory": "/crm", "dockerfilePath": "Dockerfile", "startCommand": "sh start.sh", "healthcheckPath": "/health", "healthcheckTimeout": 120, "restartPolicyType": "ON_FAILURE", "variables": {"APP_MODE": "web", "COOKIE_SECURE": "true"}},
+    {"serviceId": "223272f8-fce3-4b60-ab18-00289ae8a876", "name": "crm-morning-agent", "rootDirectory": "/crm", "dockerfilePath": "Dockerfile", "startCommand": "sh start.sh", "cronSchedule": "0 * * * *", "restartPolicyType": "NEVER", "variables": {"APP_MODE": "worker"}}
+  ]
+}
