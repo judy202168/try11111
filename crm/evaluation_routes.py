@@ -5,6 +5,7 @@ from evaluation_runner import evaluate_one, pricing_for
 from followup_agent import MODEL_DEFAULT
 from evaluation_fixtures import RULES
 import os
+from prompt_registry import active_prompts,use_prompts
 
 RESOURCES={'evaluation_scenarios','evaluation_rules','evaluation_runs','evaluation_check_results'}
 
@@ -43,7 +44,8 @@ def register(app, db, limiter):
         if {r['rule_key'] for r in rules}!=required:return jsonify(error='Scenario rules are incomplete; no run started.'),409
         model=os.getenv('OPENROUTER_MODEL',MODEL_DEFAULT)
         # No live CRM db handle is passed to the agent; only evaluation storage and fixtures.
-        result=evaluate_one(scenario,rules,storage,str(uuid4()),pricing_for(model))
+        with use_prompts(active_prompts(db)):
+            result=evaluate_one(scenario,rules,storage,str(uuid4()),pricing_for(model))
         return jsonify(run=result)
 
     @app.patch('/api/evaluations/rules/<rule_id>')
