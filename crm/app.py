@@ -44,6 +44,15 @@ def db(resource, method='GET', data=None, record_id=None, extra_params=None):
     return response.json() if response.content else []
 
 
+def rpc(function, payload):
+    response=requests.post(os.environ['SUPABASE_URL'].rstrip('/')+'/rest/v1/rpc/'+function,
+        headers={'apikey':os.environ['SUPABASE_PUBLISHABLE_KEY'],'X-CRM-Token':os.environ['CRM_DATABASE_TOKEN']},json=payload,timeout=30)
+    if not response.ok:
+        app.logger.error('Database transaction failed: function=%s status=%s',function,response.status_code)
+        raise RuntimeError('Database transaction failed. Refresh the page and try again.')
+    return response.json()
+
+
 @app.before_request
 def protect():
     if request.path.startswith('/api/') and request.path not in ['/api/login', '/api/session']:
@@ -180,9 +189,11 @@ def rate_limited(error):
 
 
 from agent_routes import register
-register(app, db)
+register(app, db, rpc)
 from evaluation_routes import register as register_evaluations
 register_evaluations(app, db, limiter)
+from feedback_routes import register as register_feedback
+register_feedback(app, db, rpc, limiter)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', '8080')))
