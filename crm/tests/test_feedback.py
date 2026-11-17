@@ -21,8 +21,19 @@ class DummyLimiter:
 class FeedbackReviewTests(unittest.TestCase):
  def setUp(self):
   self.actor={'id':str(uuid4()),'username':'morgan','display_name':'Morgan Lee','team':'Sales','role':'admin','active':True}
-  self.draft={'id':str(uuid4()),'status':'pending','workflow_type':'followup','original_suggestion':{'subject':'Hello','body':'Original message','next_action':'Review'},'context':{}}
-  self.db=Mock(side_effect=lambda resource,*args,**kwargs:[self.actor] if resource=='reviewers' else [self.draft])
+  from guardrail_cases import cases
+  self.source=cases()[0]['input_context']
+  self.draft={'entity_type':'deals','entity_id':self.source['opportunity_id'],'id':str(uuid4()),'status':'pending','workflow_type':'followup','original_suggestion':{'subject':'Hello','body':'Original message','next_action':'Review'},'context':{}}
+  def store(resource,method='GET',data=None,record_id=None,extra_params=None):
+   if resource=='reviewers':return [self.actor]
+   if resource=='contacts':return [self.source['contact']]
+   if resource=='deals':return [self.source['record']]
+   if resource=='guardrail_events':return [{'id':str(uuid4()),**data}]
+   if resource=='followups':
+    if method=='PATCH':self.draft.update(data)
+    return [self.draft]
+   return []
+  self.db=Mock(side_effect=store)
   self.rpc=Mock(return_value={'review_id':'review','message':'No message sent'})
   self.app=Flask('feedback_test');self.app.secret_key='test';register(self.app,self.db,self.rpc,DummyLimiter())
   @self.app.post('/test-review')
@@ -42,7 +53,7 @@ class FeedbackReviewTests(unittest.TestCase):
    self.assertEqual(self.client.post('/test-review',json={'action':action}).status_code,400)
   self.rpc.assert_not_called()
  def test_edit_requires_changed_final(self):
-  r=self.client.post('/test-review',json={'action':'edit_approve','reason':'Incorrect tone','final_suggestion':self.draft['original_suggestion']})
+  r=self.client.post('/test-review',json={'action':'edit_approve','reason':'Incorrect tone','final_suggestion':__import__('guardrails').assess(self.source,self.draft['original_suggestion'])['safe_suggestion']})
   self.assertEqual(r.status_code,400);self.rpc.assert_not_called()
   final={**self.draft['original_suggestion'],'body':'A clearer, reviewed message'}
   r=self.client.post('/test-review',json={'action':'edit_approve','reason':'Incorrect tone','final_suggestion':final,'note':'Adjusted phrasing'})
