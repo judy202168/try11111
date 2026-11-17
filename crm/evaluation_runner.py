@@ -47,7 +47,7 @@ def proposed(sandbox, context, first_counts):
                        'opportunity_id':deal['id'] if deal else None,'owner':row.get('review_owner') or row.get('owner'),'context_owner':row.get('context',{}).get('record',{}).get('owner'),
                        'subject':row.get('subject',''),'body':row.get('body',''),'status':row['status']})
     actions=[{'entity_type':kind,'entity_id':r['id'],'owner':r.get('owner'),'action':r.get('suggested_next_action')} for kind in ('contacts','deals') for r in sandbox.rows[kind] if r.get('suggested_next_action')]
-    return {'drafts':drafts,'tasks':task_proposals,'blocked_reasons':blocks,'suggested_actions':actions,
+    return {'workflow':next((r.get('workflow_type','followup') for r in sandbox.rows['followups']), 'followup'),'drafts':drafts,'tasks':task_proposals,'blocked_reasons':blocks,'suggested_actions':actions,
             'contacts':deepcopy(sandbox.rows['contacts']),'errors':errors,'sent_count':len(sandbox.violations),'sandbox_violations':sandbox.violations,
             'first_run_counts':first_counts,'second_run_counts':{'drafts':len(drafts),'tasks':len(task_proposals)},
             'operation_log':sandbox.operations,'raw_followups':deepcopy(sandbox.rows['followups'])}
