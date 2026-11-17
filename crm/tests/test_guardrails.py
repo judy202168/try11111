@@ -23,6 +23,12 @@ class GuardrailPolicyTests(unittest.TestCase):
   for resource,method in [('contacts','POST'),('deals','PATCH'),('tasks','POST'),('contacts','DELETE'),('reviewers','POST'),('email_outbox','POST')]:
    with self.assertRaises(PolicyBlocked):store(resource,method,{'value':'do not apply'})
   self.assertEqual(spy.writes,[])
+ def test_agent_cannot_approve_or_publish_without_policy_check(self):
+  spy=EffectSpy();store=AgentStore(spy)
+  for payload in ({'status':'approved'},{'status':'pending'},{'final_suggestion':{}},{'reviewed_at':'2026-11-17'}):
+   with self.assertRaises(PolicyBlocked):store('followups','PATCH',payload,record_id=str(uuid4()))
+  with self.assertRaises(PolicyBlocked):store('guardrail_events','PATCH',{'passed':True},record_id=str(uuid4()))
+  self.assertEqual(spy.writes,[])
  def test_missing_and_ambiguous_fields_are_blank_and_flagged(self):
   for case in cases()[3:]:
    actual=assess(case['input_context'],case['proposed_output']);field=case['expected_behavior']['blank_field']
