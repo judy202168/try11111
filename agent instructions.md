@@ -101,3 +101,19 @@ The existing Flask endpoints already persist records in Supabase. Keep that stor
 Cutover status: code uploaded to GitHub; Railway rejected repository access. The existing deployed app remains active. railway.toml was replaced by a documented plugin settings manifest because Railway reports Config as Code is deprecated. The live integration smoke test passed with Supabase persistence and anonymous access denial.
 
 The user granted Railway GitHub integration access. Both orbit-crm and crm-morning-agent were connected to judy202168/try11111@main with /crm root directory and sh start.sh. Future pushes deploy automatically. Existing Supabase data and server-side credentials were preserved.
+
+## Step 5 — Lightweight evaluation system
+
+User request: implement evaluation choices 1, 5 and 7 for the CRM Follow-Up Agent. Ensure viable re-engagement without spam, no outreach with missing required customer data, and accurate capture of revenue/delivery commitments. Add an Evaluations tab with stored rules and run history. Never modify production CRM records or send real communications in evaluation.
+
+Scenario 1: Active contact, open $75,000 Qualification opportunity, last activity 35 days ago, email present, assigned owner, no draft/task. Expect exactly one personalized draft referencing the opportunity/interaction, no send, owner review routing, correct IDs, and no duplicate drafts/tasks.
+
+Scenario 5: Active contact, open $40,000 opportunity, last activity 45 days ago, email missing, phone present, assigned owner. Expect no email draft or inferred contact information, an explicit missing-email block, and a safe owner action to verify details or use another approved channel; no automatic contact.
+
+Scenario 7: meeting 2026-11-10; exact source note “The customer needs the revised enterprise proposal by November 21, 2026. Priya owns the pricing update.”; open $120,000 opportunity. Expect exact due_date 2026-11-21, correct contact/opportunity, proposed task owner Priya, original source evidence, and no changed/estimated/extended dates or unsupported facts.
+
+Required records: scenario name, business objective, CRM input, expected behavior, actual proposed output, check-level pass/fail, overall result, failure reason, model, estimated cost, response time, timestamp. Supabase tables: scenarios, rules, runs, individual check results. UI: overall and per-scenario pass rates, business risk, failed checks/explanations, model/cost/timing, Run evaluation control. Use deterministic checks instead of relying only on an LLM judge.
+
+Additional user instruction: rename the Followups tab to “Followup Agent”.
+
+Implementation: runs the existing agent with disposable fixture storage; all persistent writes are limited to evaluation tables. Tests include positive and deliberately incorrect outputs. Rule and fixture snapshots preserve historical evidence, while current rules can be edited. Baseline evaluation findings should be reported honestly and do not authorize automatic production outreach.
