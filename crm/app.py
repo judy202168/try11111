@@ -27,6 +27,10 @@ FIELDS = {
 
 
 def db(resource, method='GET', data=None, record_id=None, extra_params=None):
+    if method=='DELETE' and resource in ('contacts','deals','tasks','followups'):
+        from guardrail_service import blocked_action
+        from guardrails import PolicyBlocked
+        raise PolicyBlocked(blocked_action(db,'delete_crm',{'resource':resource,'record_id':record_id},context={'requested_record_id':record_id}))
     url = os.getenv('SUPABASE_URL', '').rstrip('/')
     key = os.getenv('SUPABASE_PUBLISHABLE_KEY', '')
     if not url or not key or not os.getenv('CRM_DATABASE_TOKEN'):
@@ -194,6 +198,8 @@ from evaluation_routes import register as register_evaluations
 register_evaluations(app, db, limiter)
 from feedback_routes import register as register_feedback
 register_feedback(app, db, rpc, limiter)
+from guardrail_routes import register as register_guardrails
+register_guardrails(app, db, limiter)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', '8080')))
