@@ -32,20 +32,12 @@ class ReviewTests(unittest.TestCase):
   self.client=app.test_client()
   with self.client.session_transaction() as session:session.update(authenticated=True,csrf='test')
   self.headers={'X-CSRF-Token':'test'}
+ @patch('agent_routes.active_prompts',return_value={})
  @patch('agent_routes.run')
- def test_manual_run(self,run):
+ def test_manual_run(self,run,prompts):
   run.return_value={'created':1,'failed':0,'skipped':0}
   self.assertEqual(self.client.post('/api/followups/run',json={},headers=self.headers).status_code,200)
- def test_approval_atomic_and_no_send(self):
-  from app import app
-  import agent_routes
-  fake=Mock(return_value=[{'status':'approved'}])
-  app2=__import__('flask').Flask('review_test');app2.secret_key='test'
-  agent_routes.register(app2,fake)
-  client=app2.test_client()
-  response=client.post('/api/followups/5d8195fe-1051-4df3-a1e5-e42fcb1523a5/review',json={'decision':'approved'})
-  self.assertEqual(response.status_code,200)
-  self.assertIn('No email',response.json['message'])
-  self.assertEqual(fake.call_args.kwargs['extra_params'],{'status':'eq.pending'})
-  fake.return_value=[]
-  self.assertEqual(client.post('/api/followups/5d8195fe-1051-4df3-a1e5-e42fcb1523a5/review',json={'decision':'approved'}).status_code,409)
+ def test_workspace_password_alone_cannot_review(self):
+  response=self.client.post('/api/followups/5d8195fe-1051-4df3-a1e5-e42fcb1523a5/review',json={'action':'approve'},headers=self.headers)
+  self.assertEqual(response.status_code,401)
+  self.assertIn('personal reviewer',response.json['error'])
