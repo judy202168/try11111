@@ -16,7 +16,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.config.update(SECRET_KEY=os.environ.get('SECRET_KEY') or secrets.token_hex(32),
                   SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict',
                   SESSION_COOKIE_SECURE=os.getenv('COOKIE_SECURE', 'true') == 'true',
-                  PERMANENT_SESSION_LIFETIME=timedelta(hours=12), MAX_CONTENT_LENGTH=16384)
+                  PERMANENT_SESSION_LIFETIME=timedelta(hours=12), MAX_CONTENT_LENGTH=262144)
 limiter = Limiter(get_remote_address, app=app, default_limits=['300 per minute'], storage_uri='memory://')
 STAGES = ['Lead', 'Qualified', 'Proposal', 'Negotiation', 'Won', 'Lost']
 FIELDS = {
