@@ -181,6 +181,8 @@ def rate_limited(error):
 
 from agent_routes import register
 register(app, db)
+from evaluation_routes import register as register_evaluations
+register_evaluations(app, db, limiter)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', '8080')))
