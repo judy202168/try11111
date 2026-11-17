@@ -117,3 +117,5 @@ Required records: scenario name, business objective, CRM input, expected behavio
 Additional user instruction: rename the Followups tab to “Followup Agent”.
 
 Implementation: runs the existing agent with disposable fixture storage; all persistent writes are limited to evaluation tables. Tests include positive and deliberately incorrect outputs. Rule and fixture snapshots preserve historical evidence, while current rules can be edited. Baseline evaluation findings should be reported honestly and do not authorize automatic production outreach.
+
+Verification: 25 automated tests passed. Live OpenRouter runs were saved for scenarios 1, 5, and 7, followed by a UI-triggered scenario 1 replay. All baseline scenarios exposed business gaps in the current agent. Production CRM and follow-up fingerprints were unchanged during the suite; anonymous evaluation-table reads were denied. Rule editing and run-history updates were verified in the deployed UI. Owner routing requires a real draft assignment; context metadata alone must not be treated as routing.
