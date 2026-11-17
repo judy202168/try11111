@@ -13,7 +13,8 @@ class AgentTests(unittest.TestCase):
  @patch('followup_agent.requests.post')
  def test_model_json_validation(self,post):
   post.return_value=Mock(ok=True,json=lambda:{'choices':[{'message':{'content':'{"subject":"Hello","body":"Checking in","next_action":"Review draft"}'}}]})
-  self.assertEqual(generate({})['next_action'],'Review draft')
+  self.assertEqual(generate({})['body'],'')
+  self.assertIsNone(generate({}).assessment['facts']['contact'])
   self.assertNotIn('tools',post.call_args.kwargs['json'])
   post.return_value.json=lambda:{'choices':[{'message':{'content':'bad json'}}]}
   with self.assertRaises(RuntimeError):generate({})
