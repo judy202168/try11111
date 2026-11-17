@@ -5,6 +5,8 @@ import time
 from evaluation_telemetry import collect_calls
 from model_client import metadata
 from prompt_registry import prompt
+from guardrails import AgentStore,prepare,assess,GuardedSuggestion
+from guardrail_service import record_assessment
 from datetime import datetime, timezone, timedelta
 import requests
 
@@ -21,12 +23,12 @@ def candidates(contacts, deals, now=None, days=7):
             yield kind, row, version
 
 def generate(context):
-    from model_client import request_json,validate_suggestion
-    try:return validate_suggestion(request_json(context,'followup'),'followup')
-    except ValueError as error:raise RuntimeError(str(error))
+    from model_client import request_json
+    return prepare(context,request_json(context,'followup'),'followup')
 
 
 def run(db):
+    if not isinstance(db,AgentStore):db=AgentStore(db)
     if not os.getenv('OPENROUTER_API_KEY'): raise RuntimeError('Add OPENROUTER_API_KEY in Railway Variables to enable drafting.')
     contacts=db('contacts'); deals=db('deals'); tasks=db('tasks'); existing=db('followups')
     seen={(r['entity_type'],r['entity_id'],r['activity_version']) for r in existing}
@@ -38,8 +40,8 @@ def run(db):
         if result['created']+result['failed']>=10: break
         contact=row if kind=='contacts' else by_id.get(row.get('contact_id'))
         # Send only relevant context; exclude phone numbers and unrelated records.
-        context={'customer_id':contact.get('id') if contact else None,'opportunity_id':row['id'] if kind=='deals' else None,'record':{k:row.get(k) for k in ['name','title','company','role','stage','value','notes','owner','close_date'] if k in row},
-                 'contact':{k:contact.get(k) for k in ['name','email','company','role'] } if contact else None,
+        context={'customer_id':contact.get('id') if contact else None,'opportunity_id':row['id'] if kind=='deals' else None,'record':{k:row.get(k) for k in ['id','contact_id','name','title','company','role','stage','value','notes','owner','close_date'] if k in row},
+                 'contact':{k:contact.get(k) for k in ['id','name','email','company','role','owner'] } if contact else None,
                  'last_recorded_activity':version,'activity_basis':'last_activity_at or creation date when unknown',
                  'open_tasks':[{'title':t['title'],'due_date':t['due_date']} for t in tasks if not t['done'] and contact and t.get('contact_id')==contact['id']]}
         try:
@@ -49,10 +51,14 @@ def run(db):
             result['skipped']+=1;continue
         started=time.perf_counter();calls=[]
         try:
-            with collect_calls() as calls:draft=generate(context)
-            db('followups','PATCH',{**draft,'original_suggestion':draft,'status':'pending',**metadata(calls,started,'followup')},claimed['id'])
-            db(kind,'PATCH',{'suggested_next_action':draft['next_action']},row['id'])
+            preflight=assess(context,None,'followup')
+            with collect_calls() as calls:draft=generate(context) if preflight['can_generate'] else GuardedSuggestion(preflight)
+            if not isinstance(draft,GuardedSuggestion):draft=prepare(context,draft,'followup')
+            result_guard=draft.assessment
+            result_guard['audit_event_ids']=record_assessment(db,result_guard,claimed['id'])
+            db('followups','PATCH',{**draft,'original_suggestion':result_guard['proposed_output'],'guardrail_result':result_guard,'status':'pending',**metadata(calls,started,'followup')},claimed['id'])
             result['created']+=1
         except Exception as error:
+            record_assessment(db,assess(context,{'model_error':str(error)},'followup'),claimed['id'])
             db('followups','PATCH',{'status':'failed','error':str(error)[:500],**metadata(calls,started,'followup')},claimed['id']);result['failed']+=1
     return result
