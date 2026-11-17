@@ -1,0 +1,11 @@
+REASONS = ['Incorrect tone','Incorrect customer or business context','Wrong owner','Wrong deadline','Hallucinated or unsupported information','Too generic, impersonal or sales-oriented','Not useful or actionable','Other']
+HIGH_RISK={'Wrong owner','Wrong deadline','Hallucinated or unsupported information'}
+RECOMMENDATIONS={
+ 'Incorrect tone':('Customer trust','Specify a respectful, low-pressure tone with no invented familiarity.','Include communication preferences when verified.','Add a pushy-language and inappropriate-tone evaluation.'),
+ 'Incorrect customer or business context':('Data accuracy and customer trust','Use only the selected customer and opportunity facts.','Validate customer/opportunity linkage before generation.','Add mismatched-customer and stale-context cases.'),
+ 'Wrong owner':('Employee accountability and delivery','Do not infer an owner; mark unknown owners for review.','Resolve owners against the assigned customer owner or explicit source note.','Add unassigned, conflicting-owner and reassignment cases.'),
+ 'Wrong deadline':('Revenue and delivery commitments','Preserve explicit dates exactly; never estimate or extend a commitment.','Retain the verbatim date evidence and meeting date.','Add ambiguous-date, conflicting-date and exact-ISO cases.'),
+ 'Hallucinated or unsupported information':('Customer trust, revenue and data integrity','Require source evidence for each factual claim; abstain when unsupported.','Exclude unverified claims and preserve the source note.','Add missing-evidence, fabricated-commitment and prompt-injection cases.'),
+ 'Too generic, impersonal or sales-oriented':('Customer engagement and spam','Reference a verified relevant opportunity and avoid generic sales language.','Include useful opportunity details and prior-interaction evidence.','Add personalization and repeated-outreach cases.'),
+ 'Not useful or actionable':('Employee time and operational execution','Propose a specific reviewable next action with a verified owner.','Provide current open tasks to avoid redundant actions.','Add unclear-action and duplicate-task cases.'),
+ 'Other':('Unclassified quality risk','Review the recorded notes before proposing a targeted prompt revision.','Investigate source context with the reviewer.','Turn the verified failure into a reproducible evaluation case.')}
