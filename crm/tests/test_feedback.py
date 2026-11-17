@@ -54,6 +54,14 @@ class FeedbackReviewTests(unittest.TestCase):
   self.actor['active']=False
   self.assertEqual(self.client.post('/test-review',json={'action':'approve'}).status_code,401)
   self.rpc.assert_not_called()
+ def test_personal_login_error_does_not_expire_workspace(self):
+  self.db.side_effect=lambda *args,**kwargs:[]
+  r=self.client.post('/api/reviewer/login',json={'username':'missing','password':'wrong'})
+  self.assertEqual(r.status_code,401);self.assertEqual(r.json['code'],'REVIEWER_AUTH_REQUIRED')
+ def test_empty_reporting_preserves_aggregate_reason_list(self):
+  self.db.side_effect=lambda *args,**kwargs:[]
+  r=self.client.get('/api/feedback')
+  self.assertEqual(r.status_code,200);self.assertEqual(r.json['reasons'],[]);self.assertEqual(len(r.json['reason_options']),8)
  def test_nonadmin_cannot_approve_or_release_prompt(self):
   self.actor['role']='reviewer'
   for endpoint in ('approve','release'):
