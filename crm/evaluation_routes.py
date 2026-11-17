@@ -44,8 +44,14 @@ def register(app, db, limiter):
         if {r['rule_key'] for r in rules}!=required:return jsonify(error='Scenario rules are incomplete; no run started.'),409
         model=os.getenv('OPENROUTER_MODEL',MODEL_DEFAULT)
         # No live CRM db handle is passed to the agent; only evaluation storage and fixtures.
-        with use_prompts(active_prompts(db)):
-            result=evaluate_one(scenario,rules,storage,str(uuid4()),pricing_for(model))
+        workflow=payload.get('workflow','followup')
+        if workflow not in ('followup','meeting_update') or (workflow=='meeting_update' and scenario['scenario_number']!=7):return jsonify(error='Meeting-update evaluation uses scenario 7.'),400
+        prompts=active_prompts(db);executor=None;tested_prompt=None
+        if workflow=='meeting_update':
+            from meeting_updates import sandbox_executor
+            executor=sandbox_executor;tested_prompt=prompts['meeting_update']
+        with use_prompts(prompts):
+            result=evaluate_one(scenario,rules,storage,str(uuid4()),pricing_for(model),executor=executor,prompt_version=tested_prompt)
         return jsonify(run=result)
 
     @app.patch('/api/evaluations/rules/<rule_id>')
