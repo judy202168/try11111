@@ -10,4 +10,4 @@ Single-HTML Tailwind frontend, Flask API, Supabase database, and Railway deploym
 
 Live app: https://orbit-crm-production-ace6467a.up.railway.app
 
-Source cutover to GitHub is pending Railway integration access to this repository. No credentials are stored in this repository.
+Both Railway services are connected to this repository’s main branch for automatic deployments. No credentials are stored in this repository.
