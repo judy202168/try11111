@@ -71,6 +71,19 @@ class FeedbackReviewTests(unittest.TestCase):
   self.draft.update(workflow_type='meeting_update',context={'notes':NOTE})
   final={'summary':'Reviewed meeting','next_action':'Verify pricing','commitments':[{'title':'Pricing update','owner':'Priya','due_date':'2026-11-21','source_evidence':'Invented source'}]}
   self.assertEqual(self.client.post('/test-review',json={'action':'edit_approve','reason':'Wrong deadline','final_suggestion':final}).status_code,400)
+ def test_first_account_bootstraps_admin_without_plaintext_password(self):
+  def store(resource,method='GET',data=None,record_id=None,extra_params=None):
+   return [{'id':str(uuid4()),'active':True,**data}] if method=='POST' else []
+  self.db.side_effect=store
+  r=self.client.post('/api/reviewers',json={'username':'first.admin','display_name':'First Reviewer','team':'Operations','password':'unit-only-personal-pass','role':'reviewer'})
+  self.assertEqual(r.status_code,201);self.assertEqual(r.json['reviewer']['role'],'admin');self.assertNotIn('password_hash',r.json['reviewer'])
+  stored=self.db.call_args.args[2]
+  from werkzeug.security import check_password_hash
+  self.assertNotEqual(stored['password_hash'],'unit-only-personal-pass');self.assertTrue(check_password_hash(stored['password_hash'],'unit-only-personal-pass'))
+ def test_existing_reviewer_cannot_issue_admin_accounts(self):
+  self.actor['role']='reviewer'
+  r=self.client.post('/api/reviewers',json={'username':'new.admin','display_name':'Name','team':'Sales','password':'unit-only-password','role':'admin'})
+  self.assertEqual(r.status_code,403)
  def test_password_hash_not_in_public_profiles(self):
   self.actor['password_hash']='not-for-browser'
   data=self.client.get('/api/reviewer').json
