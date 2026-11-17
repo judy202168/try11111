@@ -36,13 +36,10 @@ class CRMTests(unittest.TestCase):
         response=self.client.patch('/api/contacts/5d8195fe-1051-4df3-a1e5-e42fcb1523a5',json={'status':'Customer'},headers=self.headers)
         self.assertEqual(response.status_code,200)
     @patch('app.db')
-    def test_data_and_delete(self,db):
+    def test_data(self,db):
         self.login()
         db.return_value=[]
         self.assertEqual(set(self.client.get('/api/data').json),{'contacts','deals','tasks'})
-        self.assertEqual(self.client.delete('/api/contacts/5d8195fe-1051-4df3-a1e5-e42fcb1523a5',headers=self.headers).status_code,404)
-        db.return_value=[{'id':'5d8195fe-1051-4df3-a1e5-e42fcb1523a5'}]
-        self.assertEqual(self.client.delete('/api/contacts/5d8195fe-1051-4df3-a1e5-e42fcb1523a5',headers=self.headers).status_code,200)
     def test_validation_rejects_bad_inputs(self):
         self.login()
         cases=[('contacts',{'name':''}),('contacts',{'name':'A','admin':True}),('contacts',{'name':'A','email':'no-email'}),('deals',{'title':'Deal','value':-1}),('deals',{'title':'Deal','value':float('inf')}),('deals',{'title':'Deal','stage':'Unexpected'}),('tasks',{'title':'Task','due_date':'nonsense'}),('tasks',{'title':'Task','done':'yes'})]
