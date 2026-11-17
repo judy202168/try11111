@@ -99,3 +99,5 @@ Requested deliverables: supabase_schema.sql, .env.example, Railway configuration
 The existing Flask endpoints already persist records in Supabase. Keep that storage and its data intact. Publish source to judy202168/try11111, build both Railway services from /crm, use Dockerfile/start.sh and the secret-free .railway/deployment-settings.json manifest, and retain server-only credentials as Railway variables. The schema file is for a fresh database; never replace the existing live token hash with its setup placeholder.
 
 Cutover status: code uploaded to GitHub; Railway rejected repository access. The existing deployed app remains active. railway.toml was replaced by a documented plugin settings manifest because Railway reports Config as Code is deprecated. The live integration smoke test passed with Supabase persistence and anonymous access denial.
+
+The user granted Railway GitHub integration access. Both orbit-crm and crm-morning-agent were connected to judy202168/try11111@main with /crm root directory and sh start.sh. Future pushes deploy automatically. Existing Supabase data and server-side credentials were preserved.
