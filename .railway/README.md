@@ -8,4 +8,4 @@ The worker runs hourly but exits outside 8 AM America/Los_Angeles. Preserve its 
 
 For fully managed Infrastructure as Code later, import the live environment using `railway config pull`, inspect the generated `.railway/railway.ts` with secrets represented by preserve(), and review `railway config plan` before applying. See https://docs.railway.com/infrastructure-as-code.
 
-Current cutover status: source files are uploaded; Railway rejected the repository with “User does not have access to the repo.” Existing image deployments remain active until GitHub integration access is granted.
+Current cutover status: both Railway services are connected to judy202168/try11111@main, with /crm as root and sh start.sh as the start command. GitHub pushes trigger deployments. Existing credentials and the morning worker schedule are preserved.
