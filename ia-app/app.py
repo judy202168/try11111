@@ -1,4 +1,4 @@
-"""Local, single-process SOX/IA content workspace with JSON persistence."""
+"""SOX/IA content workspace with server-side Supabase persistence."""
 import json
 import os
 import re
@@ -11,11 +11,15 @@ from urllib import request, error
 
 from flask import Flask, jsonify, send_file, request as flask_request
 from werkzeug.exceptions import HTTPException
+from supabase_store import SupabaseStore, SupabaseStoreError
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
-DATA_FILE = Path(os.environ.get('LAB_DATA_FILE', str(ROOT / 'data.json')))
+# Explicit LAB_DATA_FILE is retained only as a test adapter. Normal application
+# operation uses Supabase and never writes workspace state to the local filesystem.
+DATA_FILE = Path(os.environ['LAB_DATA_FILE']) if os.environ.get('LAB_DATA_FILE') else None
+SUPABASE_STORE = None
 LOCK = threading.RLock()
 KINDS = ('article', 'case-study', 'template', 'project')
 STATUSES = ('Draft', 'Reviewed', 'Published')
@@ -28,20 +32,33 @@ def empty_store():
 
 
 def read_store():
-    if not DATA_FILE.exists():
-        return empty_store()
-    with DATA_FILE.open(encoding='utf-8') as handle:
-        data = json.load(handle)
-        data.setdefault('soc_reviews', [])
-        data.setdefault('sec_reviews', [])
-        data.setdefault('builder', {})
-        data.setdefault('builder_requests', [])
-        data.setdefault('implementation_assessments', [])
-        data.setdefault('accounting_agent_runs', [])
-        return data
+    if DATA_FILE is not None:
+        if not DATA_FILE.exists():
+            data = empty_store()
+        else:
+            with DATA_FILE.open(encoding='utf-8') as handle:
+                data = json.load(handle)
+    else:
+        global SUPABASE_STORE
+        if SUPABASE_STORE is None:
+            SUPABASE_STORE = SupabaseStore()
+        data = SUPABASE_STORE.read(empty_store)
+    data.setdefault('soc_reviews', [])
+    data.setdefault('sec_reviews', [])
+    data.setdefault('builder', {})
+    data.setdefault('builder_requests', [])
+    data.setdefault('implementation_assessments', [])
+    data.setdefault('accounting_agent_runs', [])
+    return data
 
 
 def write_store(data):
+    if DATA_FILE is None:
+        global SUPABASE_STORE
+        if SUPABASE_STORE is None:
+            SUPABASE_STORE = SupabaseStore()
+        SUPABASE_STORE.write(data)
+        return
     DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(dir=DATA_FILE.parent, prefix='.lab-', suffix='.tmp')
     try:
@@ -93,7 +110,17 @@ def http_error(exc):
 @app.errorhandler(Exception)
 def unexpected(exc):
     app.logger.exception('Request failed')
-    return jsonify(error='Unable to complete the request. Check the server log; your saved file has not been reset.'), 500
+    return jsonify(error='Unable to complete the request. Check the server log; no storage reset was attempted.'), 500
+
+
+@app.get('/health')
+def health():
+    try:
+        with LOCK:
+            read_store()
+        return jsonify(status='ok', storage='supabase' if DATA_FILE is None else 'test-json')
+    except SupabaseStoreError:
+        return jsonify(status='degraded', storage='supabase'), 503
 
 
 @app.before_request
@@ -292,7 +319,4 @@ register_accounting_agents(app, read_store, write_store, LOCK, activity, str(Pat
 
 
 if __name__ == '__main__':
-    with LOCK:
-        if not DATA_FILE.exists():
-            write_store(empty_store())
-    app.run(host='127.0.0.1', port=int(os.environ.get('PORT', '5000')), debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)

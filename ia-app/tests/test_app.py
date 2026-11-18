@@ -7,6 +7,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import URLError
+
+# Import the app through its explicit test-only JSON adapter. Production startup
+# requires Supabase environment variables and never selects this path.
+os.environ.setdefault('LAB_DATA_FILE', str(Path(tempfile.gettempdir()) / 'jd-lab-test-bootstrap.json'))
 import app as lab
 
 

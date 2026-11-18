@@ -1,6 +1,6 @@
 # JD’s SOX/IA AI Lab
 
-A local, personal content CRM for SOX, internal audit, and practical AI learning. The audit libraries start empty, without sample data. JD AI Builder displays portfolio content stored in the local workspace data file.
+A Flask application for SOX, internal audit, and practical AI learning. Application state is stored in Supabase; Railway runs the web server from the connected GitHub repository.
 
 ## Run
 
@@ -8,7 +8,8 @@ A local, personal content CRM for SOX, internal audit, and practical AI learning
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp data.example.json data.json
+cp .env.example .env
+# Populate the Supabase server variables in your shell or deployment environment.
 python app.py
 ```
 
@@ -17,8 +18,11 @@ Open http://127.0.0.1:5000. If port 5000 is occupied, use `PORT=5050 python app.
 ## Layout
 
 - `templates/index.html`: the entire frontend, with TailwindCSS and inline JavaScript. Tailwind and the optional DM Sans font load from public CDNs, so initial styling requires internet access.
-- `app.py`: Flask server, validation, search-based source retrieval, optional AI generation, and JSON persistence.
-- `data.example.json`: empty storage structure safe to keep in source control. Copy it to the ignored `data.json` runtime file before first use. Updates use a lock and atomic file replacement. Run one server process against this file; this is not a multiworker database.
+- `app.py`: Flask server, validation, search-based source retrieval, optional AI generation, and Supabase persistence.
+- `supabase_store.py`: server-only Data API adapter. The browser never receives database credentials.
+- `supabase_schema.sql`: isolated workspace table, private token-hash table, grants, RLS policies, and updated-at trigger.
+- `railway.toml`: Railway build, Gunicorn start, restart, and health-check configuration.
+- `data.example.json`: an empty reference shape. It is not the production persistence backend.
 
 ## Workflows
 
@@ -30,7 +34,7 @@ Open http://127.0.0.1:5000. If port 5000 is occupied, use `PORT=5050 python app.
 - The assistant supports independent review, analysis, and draft requests with optional evidence notes. It retrieves up to five relevant reviewed/published sources using keyword overlap. It never treats Draft resources as authority. No matching sources means no generated answer.
 - Without an API key, the assistant returns source excerpts only, clearly labeled **Local resource search**. It does not perform generative analysis in this mode.
 - With a key, generated responses cite numbered source references, appear as drafts for human review, and can be saved back into the library as Draft resources. Past responses retain their text and source titles/timestamps even when the original resource is changed or deleted. Links open the current resource, if it still exists.
-- Activity and assistant requests persist across restarts. **Export workspace** downloads a full JSON backup, including notes and history. There is no in-app import; restore a backup by stopping the server and replacing `data.json`.
+- Activity and assistant requests persist in Supabase. **Export workspace** downloads a full JSON backup, including notes and history.
 
 ## Optional AI generation
 
@@ -46,7 +50,7 @@ The key stays on the server and is never stored in JSON or sent to the browser. 
 
 ## Scope
 
-This app is bound to localhost and has no login or role permissions. It is designed for one person's local use, not public hosting. Data and activity history are editable plain JSON, not an immutable audit trail. Keep sensitive data and local backups appropriately protected. `LAB_DATA_FILE` can point to a separate JSON file, useful for testing.
+The deployed app still has no end-user authentication or role-based approval workflow. Supabase access is server-only and protected by RLS plus a random application token, but anyone who can reach the Railway URL can use the Flask endpoints. Add an approved access layer before placing confidential information in an internet-reachable deployment. `LAB_DATA_FILE` exists only as an explicit test adapter.
 
 ## Verification
 
@@ -54,7 +58,17 @@ This app is bound to localhost and has no login or role permissions. It is desig
 python -m unittest discover -s tests -v
 ```
 
-Tests use isolated temporary JSON storage and mocked AI responses. They do not modify `data.json` or call the external AI service.
+Tests use isolated temporary storage plus mocked Supabase and AI responses. They do not modify Supabase or call external AI services.
+
+## Supabase and Railway deployment
+
+1. Apply `supabase_schema.sql` to the selected Supabase project.
+2. Generate a long random `IA_DATABASE_TOKEN`. Insert only its SHA-256 hash into `private.ia_access_tokens` for workspace `default`.
+3. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `IA_DATABASE_TOKEN`, `IA_WORKSPACE_KEY`, and `FLASK_SECRET_KEY` as server-side Railway variables.
+4. Connect Railway to the GitHub repository and set its root directory to `/ia-app`.
+5. Attach a persistent volume at the path used by `LAB_UPLOAD_DIR` if review uploads must survive redeployments.
+
+The Supabase publishable/legacy anon key identifies the Data API request but does not by itself grant workspace access. RLS also requires the server-only `X-IA-Token`; only a SHA-256 hash of that token is stored in the private schema. The browser receives neither value.
 
 ## SOC report review agent
 
@@ -96,9 +110,9 @@ A prepared draft can be saved without a Google connection. Creating a native She
 - Up to **25 MB per file**, **80 MB per request**, **600 PDF pages per document**, and **600,000 extracted characters per document**. Oversized inputs are rejected rather than silently truncated.
 - PDF extraction retains PDF page references. Printed page numbering is not assumed; verify it against the report. Low-text pages generate explicit completeness warnings. Image-only PDFs must be OCR-processed before upload. This version does not perform visual table/image analysis or OCR.
 - Excel extraction includes all worksheets (including hidden ones), cell coordinates, formula text and cached values; formulas/macros are not executed. Excel files need an appropriately scoped export if they exceed 20,000 rows, 300 columns, or 80,000 populated cells. Embedded Excel images/charts and DOCX images are not interpreted; provide important content as readable text or searchable PDF.
-- Original uploads are retained in `private_uploads/<run-id>/`, outside served paths, with restrictive filesystem permissions. Drafts, source filenames/hashes, progress, and Sheet links are stored in `data.json`. Stop the server before manually removing retained files. Back up `data.json` and the private uploads directory together if source retention is needed.
+- Original uploads are retained under `LAB_UPLOAD_DIR`, outside served paths, with restrictive filesystem permissions. Drafts, source filenames/hashes, progress, and Sheet links are stored in Supabase. Back up Supabase and the persistent upload volume together if source retention is needed.
 - **Export workspace** includes saved draft review text and history, but does not include binary uploads, OAuth tokens, or API keys.
-- A single background worker handles reviews; up to three runs can be active/queued. Restarted jobs are marked interrupted and must be restarted. Runs and results are visible to anyone who can access this local workspace.
+- A single background worker handles reviews; up to three runs can be active/queued. Restarted jobs are marked interrupted and must be restarted. Runs and results are visible to anyone who can access the deployed workspace.
 - Google creation is idempotent once an ID has been returned and saved. A network timeout before Google returns an ID can leave an unconfirmed Sheet in Drive; check Drive before retrying to avoid duplicates.
 
 ### Review safeguards and remaining deployment scope
@@ -155,18 +169,18 @@ The `financial tie-out` tab is added **only when an XLSX is supplied**. It enume
 
 Draft and comparison uploads retain the SOC agent's 25 MB per-file and 80 MB request limits. Readable PDF/DOCX extraction uses the same limits; text/SEC HTML filings allow up to 1.2 million extracted characters and 650 subsection blocks. Oversized sources are rejected, without silently omitting disclosure content. Financial workbooks are limited to 20,000 rows, 300 columns, and 80,000 numeric/formula cells; unresolved census failures are explicit and do not become completed tie-outs.
 
-Source uploads, the source snapshot, and the workbook are retained under the private uploads directory in `sec/<run-id>/`. Review status, analysis, and activity are stored in `data.json`. One SEC worker processes up to three queued/active runs independently of the SOC worker. Restarted runs are marked interrupted. Google credentials/API keys are never included in source snapshots or workbook exports.
+Source uploads, the source snapshot, and the workbook are retained under `LAB_UPLOAD_DIR/sec/<run-id>/`. Review status, analysis, and activity are stored in Supabase. One SEC worker processes up to three queued/active runs independently of the SOC worker. Restarted runs are marked interrupted. Google credentials/API keys are never included in source snapshots or workbook exports.
 
-Website-wide authentication is still separate from both agents. This remains a local, single-user workspace; it does not submit SEC filings, send communications, change sharing permissions, or record human approvals. All results require accounting and legal review before use.
+Website-wide authentication is still separate from both agents. The application does not submit SEC filings, send communications, change sharing permissions, or record human approvals. All results require accounting and legal review before use.
 
 
 ## JD AI Builder
 
 **JD AI Builder** is an internal `#builder` page rendered by the same single HTML frontend as every other tab. It uses the app's white/warm-grey surfaces, Opendoor blue accents, typography, navigation, and cards. It does not open, redirect to, or embed the original portfolio site.
 
-The `builder` object in the ignored runtime `data.json` stores selected projects, self-assessed practice level, learning notes, and toolkit. Portfolio content is local workspace data and is not included in this public source repository.
+The `builder` object in Supabase stores selected projects, self-assessed practice level, learning notes, and toolkit. Portfolio content is workspace data and is not included in the public source repository.
 
-Project-category filters work inside this page. The SOC project and toolkit links open the existing SOC and SEC agents within this workspace. Demo-request buttons prefill the local contact form. Submitted requests are stored in `builder_requests` in `data.json` and recorded in activity history. They do not send email, contact anyone, or book a meeting. Request contact details are excluded from `/api/state`; full workspace exports still include saved requests. The workspace remains local and has no website-wide access controls.
+Project-category filters work inside this page. The SOC project and toolkit links open the existing SOC and SEC agents within this workspace. Demo-request buttons prefill the contact form. Submitted requests are stored in the Supabase workspace state and recorded in activity history. They do not send email, contact anyone, or book a meeting. Request contact details are excluded from `/api/state`; full workspace exports still include saved requests. There are no website-wide access controls yet.
 
 ## System implementation checklist
 
@@ -201,13 +215,13 @@ If these prerequisites later change, the saved answers remain visible, but unsup
 
 Progress shows evidence-referenced Met responses, Not met gaps, supported N/A responses, pending/in-progress items, overdue unresolved requirements, and per-control resolution. **Resolved** means Met or a supported N/A; it does not represent audit approval. The progress summary also distinguishes manually entered IA conclusions.
 
-Responses and assessment metadata persist in `data.json` under `implementation_assessments`. Each assessment retains a snapshot/version of its source requirements. Optimistic revision checks reject stale changes rather than overwriting another saved update. A refresh retrieves the latest assessment.
+Responses and assessment metadata persist in Supabase under `implementation_assessments`. Each assessment retains a snapshot/version of its source requirements. Optimistic revision checks reject stale changes rather than overwriting another saved update. A refresh retrieves the latest assessment.
 
-Files are retained under `private_uploads/implementation/<assessment-id>/`, outside served static paths, with restrictive directory/file permissions. Downloads check that the attachment belongs to the requested assessment and requirement. There is no automatic external sharing. Back up this private directory together with `data.json` if evidence retention is needed. The dedicated assessment list avoids sending all responses on every general workspace refresh.
+Files are retained under `LAB_UPLOAD_DIR/implementation/<assessment-id>/`, outside served static paths, with restrictive directory/file permissions. Downloads check that the attachment belongs to the requested assessment and requirement. There is no automatic external sharing. Back up the persistent upload volume together with Supabase if evidence retention is needed. The dedicated assessment list avoids sending all responses on every general workspace refresh.
 
 **Download CSV** exports all 44 detailed requirements and the SOD applicability decision, including evidence references, attachment names, owners, dates, notes, IA review fields and template provenance. Potential spreadsheet-formula text is escaped. Binary attachments are not included in CSV or the JSON workspace export.
 
-This remains part of the same local workspace; it does not add website-wide authentication or role-based approval controls.
+This remains part of the same workspace; it does not add website-wide authentication or role-based approval controls.
 
 ## Useful Accounting AI Agent
 
@@ -216,6 +230,6 @@ Open **Useful Accounting AI Agent** in the sidebar. This is an operating workspa
 - **Ask Contract** accepts contract metadata and pasted terms, then performs a preliminary revenue-contract, intake-completeness, or control-and-auditability review. It identifies potential evidence for the five contract criteria, obligation-related clauses, topic flags, missing fields, and control questions. It never issues an accounting conclusion or posts a journal entry.
 - **Analyze SEC XBRL Data** accepts pasted CSV/TSV data and can summarize the dataset, find narrative facts, or calculate descriptive statistics for a numeric column. Up to 5,000 rows are analyzed per run. Results must be verified against the full filing and associated SEC metadata.
 
-Each run synchronizes one fixed, allowlisted public repository using `git clone` or `git pull --ff-only`, records the exact commit and license, performs the selected work locally, and stores the result under `accounting_agent_runs` in `data.json`. Repository caches are retained under `private_uploads/accounting_agent_repos/`. User-supplied repository URLs or commands are not accepted or executed.
+Each run synchronizes one fixed, allowlisted public repository using `git clone` or `git pull --ff-only`, records the exact commit and license, performs the selected work on the server, and stores the result under `accounting_agent_runs` in Supabase. Repository caches are retained under `LAB_UPLOAD_DIR/accounting_agent_repos/`. User-supplied repository URLs or commands are not accepted or executed.
 
 The revenue workflow is grounded in `ChipmunkRPA/erev-cloud` (Apache-2.0). The complete eRev product itself requires Python/Node tooling and PostgreSQL 17; this local app does not silently claim to run that full multi-service subledger. The SEC workflow is grounded in the SEC DERA Python example repository (CC0-1.0) and follows its published analysis patterns. Repository synchronization requires internet access. These third-party sources are not independently validated or approved for production use by this app.
