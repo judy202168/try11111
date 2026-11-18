@@ -120,6 +120,10 @@ class LabTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(lab.DATA_FILE.exists())
 
+    def test_railway_forwarded_https_origin_is_allowed(self):
+        response = self.client.post('/api/practice-agents/control-design', json={'risk':'Revenue risk','control':'Controller review','performer':'Controller','precision':'Monthly threshold review','exceptions':'Tracked to resolution'}, headers={'Origin':'https://ia-app-production.up.railway.app','Host':'ia-app-production.up.railway.app','X-Forwarded-Proto':'https','X-Forwarded-Host':'ia-app-production.up.railway.app','X-Forwarded-For':'203.0.113.10'})
+        self.assertEqual(response.status_code, 200)
+
     def test_csv_import_uses_csv_path_and_appends_resources(self):
         self.resource(title='Existing')
         payload = b'title,content,kind,status,tags\nImported control,Control design guidance,article,Published,"SOX, controls"\n'

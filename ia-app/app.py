@@ -13,10 +13,14 @@ from urllib import request, error
 
 from flask import Flask, jsonify, send_file, request as flask_request
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 from supabase_store import SupabaseStore, SupabaseStoreError
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__)
+# Railway terminates TLS before forwarding to Gunicorn. Trust its single proxy
+# hop so request.host_url reflects the public HTTPS origin used by the browser.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024
 # Explicit LAB_DATA_FILE is retained only as a test adapter. Normal application
 # operation uses Supabase and never writes workspace state to the local filesystem.
