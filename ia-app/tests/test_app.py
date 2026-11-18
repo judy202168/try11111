@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import URLError
 
 # Import the app through its explicit test-only JSON adapter. Production startup
@@ -153,12 +153,21 @@ class LabTests(unittest.TestCase):
         self.assertEqual(response.json['design_concerns'], [])
         self.assertIn('not failures', response.json['assessment'])
 
-    def test_evidence_checker_not_found_is_not_failure(self):
-        response = self.client.post('/api/practice-agents/evidence-readiness', json={'requested_items':'UAT approval\nAccess listing','supplied_material':'uat-results.pdf page 4 business approval'})
+    def test_evidence_checker_requires_server_llm_and_returns_grounded_assessment(self):
+        fields = {'evidence_request':'Provide UAT approval and access listing', 'risk':'Unauthorized or untested changes could affect financial reporting', 'supporting_files':(io.BytesIO(b'UAT approved by Controller on 2026-11-01'), 'uat.txt')}
+        response = self.client.post('/api/practice-agents/evidence-readiness', data=fields)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('OPENAI_API_KEY', response.json['error'])
+        result = {'overall_status':'Partially ready','request_interpretation':'UAT and access support requested','risk_alignment':'UAT addresses change risk; access support is absent','items':[{'requested_element':'UAT approval','status':'Supported','assessment':'Approval appears in the supplied text.','references':[{'filename':'uat.txt','locator':'Line 1','quote':'UAT approved by Controller on 2026-11-01'}],'follow_up':'Confirm approver authority.'},{'requested_element':'Access listing','status':'Not found','assessment':'Not found in supplied material; this is not a control failure.','references':[],'follow_up':'Request the access listing.'}],'conflicts':[],'missing_details':['Access listing'],'conclusion':'Partially ready for submission.'}
+        output = {'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(result)}]}]}
+        mocked = Mock(ok=True, status_code=200); mocked.json.return_value = output
+        os.environ['OPENAI_API_KEY'] = 'test-key'
+        with patch('practice_agents.requests.post', return_value=mocked) as send:
+            response = self.client.post('/api/practice-agents/evidence-readiness', data={'evidence_request':fields['evidence_request'],'risk':fields['risk'],'supporting_files':(io.BytesIO(b'UAT approved by Controller on 2026-11-01'),'uat.txt')})
         self.assertEqual(response.status_code, 200)
-        missing = next(item for item in response.json['items'] if item['request'] == 'Access listing')
-        self.assertEqual(missing['status'], 'Not found in supplied index')
-        self.assertIn('does not mean the control failed', missing['follow_up'])
+        self.assertEqual(response.json['mode'], 'LLM assessment')
+        self.assertEqual(response.json['result']['items'][1]['status'], 'Not found')
+        self.assertFalse(send.call_args.kwargs['json']['store'])
 
     def test_scoping_explorer_flags_unknown_dependencies(self):
         response = self.client.post('/api/practice-agents/scoping', json={'process':'Revenue close','systems':'ERP'})
