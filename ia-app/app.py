@@ -146,6 +146,13 @@ def index():
     return send_file(ROOT / 'templates' / 'index.html')
 
 
+@app.get('/agents/<agent_name>')
+def agent_page(agent_name):
+    if agent_name not in ('control-design', 'evidence-readiness', 'scoping'):
+        return jsonify(error='Agent not found.'), 404
+    return send_file(ROOT / 'templates' / 'index.html')
+
+
 @app.get('/api/state')
 def state():
     with LOCK:

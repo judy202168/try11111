@@ -40,6 +40,10 @@ class LabTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/state').json['activity'], [])
         with self.client.get('/') as response:
             self.assertIn(b'tailwind', response.data)
+        for path in ('/agents/control-design', '/agents/evidence-readiness', '/agents/scoping'):
+            with self.client.get(path) as response:
+                self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get('/agents/unknown').status_code, 404)
 
     def test_crud_persistence_and_export(self):
         resource = self.resource()
