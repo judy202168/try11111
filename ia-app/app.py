@@ -1,4 +1,6 @@
 """SOX/IA content workspace with server-side Supabase persistence."""
+import csv
+import io
 import json
 import os
 import re
@@ -15,7 +17,7 @@ from supabase_store import SupabaseStore, SupabaseStoreError
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 80 * 1024 * 1024
 # Explicit LAB_DATA_FILE is retained only as a test adapter. Normal application
 # operation uses Supabase and never writes workspace state to the local filesystem.
 DATA_FILE = Path(os.environ['LAB_DATA_FILE']) if os.environ.get('LAB_DATA_FILE') else None
@@ -305,6 +307,89 @@ def export():
     return response
 
 
+def imported_resource(row):
+    """Validate one CSV resource row through the same rules as the editor."""
+    value = {key: (row.get(key) or '') for key in ('title', 'summary', 'content', 'kind', 'status', 'category', 'owner', 'phase', 'results', 'lessons')}
+    value['kind'] = value['kind'] or 'article'
+    value['status'] = value['status'] or 'Draft'
+    value['phase'] = value['phase'] or ('Idea' if value['kind'] == 'project' else '')
+    tags = row.get('tags') or ''
+    value['tags'] = [tag.strip() for tag in re.split(r'[,;]', tags) if tag.strip()]
+    item = resource_data(value)
+    item.update(id=str(uuid.uuid4()), created_at=now(), updated_at=now())
+    return item
+
+
+@app.post('/api/import')
+def import_workspace():
+    upload = flask_request.files.get('file')
+    if not upload or not upload.filename:
+        raise ValueError('Choose a JSON backup or CSV resource file.')
+    suffix = Path(upload.filename).suffix.lower()
+    raw = upload.stream.read(10 * 1024 * 1024 + 1)
+    if not raw or len(raw) > 10 * 1024 * 1024:
+        raise ValueError('Import files must be nonempty and no larger than 10 MB.')
+    try:
+        text = raw.decode('utf-8-sig')
+    except UnicodeDecodeError as exc:
+        raise ValueError('Import files must use UTF-8 encoding.') from exc
+    if suffix == '.json':
+        try:
+            incoming = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f'Invalid JSON at line {exc.lineno}, column {exc.colno}.') from exc
+        if not isinstance(incoming, dict):
+            raise ValueError('A JSON backup object is required.')
+        recognized = set(empty_store()) & set(incoming)
+        if not recognized:
+            raise ValueError('This JSON object does not contain recognized workspace backup fields.')
+        replacement = empty_store()
+        for key in replacement:
+            if key in incoming:
+                replacement[key] = incoming[key]
+        if not isinstance(replacement['resources'], list):
+            raise ValueError('The JSON backup resources field must be an array.')
+        # Revalidate resource records instead of trusting imported shapes.
+        validated = []
+        for index, row in enumerate(replacement['resources'], 1):
+            if not isinstance(row, dict):
+                raise ValueError(f'JSON resource {index} must be an object.')
+            item = resource_data(row)
+            item.update(id=str(row.get('id') or uuid.uuid4()), created_at=str(row.get('created_at') or now()), updated_at=str(row.get('updated_at') or now()))
+            validated.append(item)
+        replacement['resources'] = validated
+        with LOCK:
+            activity(replacement, 'Imported JSON backup', upload.filename)
+            write_store(replacement)
+        return jsonify(format='json', imported=len(validated), message=f'JSON backup restored with {len(validated)} resources.')
+    if suffix == '.csv':
+        try:
+            reader = csv.DictReader(io.StringIO(text))
+            headers = {str(name or '').strip().lower() for name in (reader.fieldnames or [])}
+            if not {'title', 'content'}.issubset(headers):
+                raise ValueError('CSV requires title and content columns. Optional columns: summary, kind, status, category, tags, owner, phase, results, lessons.')
+            rows = []
+            for index, raw_row in enumerate(reader, 2):
+                row = {str(key or '').strip().lower(): value for key, value in raw_row.items()}
+                if not any(str(value or '').strip() for value in row.values()):
+                    continue
+                try:
+                    rows.append(imported_resource(row))
+                except ValueError as exc:
+                    raise ValueError(f'CSV row {index}: {exc}') from exc
+        except csv.Error as exc:
+            raise ValueError(f'Invalid CSV: {exc}') from exc
+        if not rows:
+            raise ValueError('The CSV contains no resource rows.')
+        with LOCK:
+            data = read_store()
+            data['resources'] = rows + data['resources']
+            activity(data, 'Imported CSV resources', f'{upload.filename} · {len(rows)} rows')
+            write_store(data)
+        return jsonify(format='csv', imported=len(rows), message=f'Imported {len(rows)} resources from CSV.')
+    raise ValueError('Import supports .json workspace backups and .csv resource files.')
+
+
 from soc_agent.routes import register_soc
 soc_services = register_soc(app, read_store, write_store, LOCK, activity, (os.environ.get('LAB_UPLOAD_DIR') or str(ROOT / 'private_uploads')))
 
@@ -316,6 +401,9 @@ register_implementation(app, read_store, write_store, LOCK, activity, str(Path(o
 
 from accounting_agents.routes import register_accounting_agents
 register_accounting_agents(app, read_store, write_store, LOCK, activity, str(Path(os.environ.get('LAB_UPLOAD_DIR') or str(ROOT / 'private_uploads')) / 'accounting_agent_repos'), now)
+
+from practice_agents import register_practice_agents
+register_practice_agents(app)
 
 
 if __name__ == '__main__':

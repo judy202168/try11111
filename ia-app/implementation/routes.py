@@ -38,10 +38,8 @@ def adapt(text, assessment):
 
 
 def sod_eligible(assessment):
-    if assessment.get('sod_mode') != 'Fully in place' or not assessment.get('sod_evidence', '').strip():
-        return False
-    # Original template's primary separation and approval requirements must be supported.
-    return all(assessment['responses'].get(item_id, {}).get('status') == 'Met' and (assessment['responses'][item_id].get('evidence_reference') or assessment['responses'][item_id].get('attachments')) for item_id in ('sdlc-03-r22', 'sdlc-03-r23'))
+    response = assessment.get('responses', {}).get('sox-implementation-5', {})
+    return response.get('status') == 'Met' and bool(response.get('evidence_reference') or response.get('attachments'))
 
 
 def validity(assessment, requirement, response):
@@ -51,8 +49,6 @@ def validity(assessment, requirement, response):
     if status == 'Not applicable':
         if not response.get('na_reason', '').strip():
             return 'N/A requires an applicability rationale.'
-        if requirement['control_id'] == 'SDLC.05' and not sod_eligible(assessment):
-            return 'Revisit SDLC.05 N/A: document full SOD and support the primary SDLC.03 separation/approval checks first.'
     return ''
 
 
@@ -292,7 +288,5 @@ def register_implementation(app, read_store, write_store, lock, activity, storag
             response = assessment['responses'][item['id']]
             values = [assessment['title'], assessment['system_name'], item['number'], item['control_id'], adapt(item['question'], assessment), adapt(item['evidence_required'], assessment), response['status'], response['evidence_reference'], '; '.join(a['name'] for a in response['attachments']), response['owner'], response['target_date'], response['notes'], response['na_reason'], response['ia_procedure'], response['ia_notes'], response['ia_conclusion'], response['reviewer'], response['review_date'], validity(assessment, item, response) or 'No input validation gap; substantive review required', f'{assessment["template"]["source_filename"]} / {assessment["template"]["source_sheet"]}!{item["source_cell"]}', adapt(item['guidance'], assessment), assessment['sod_mode'], assessment['sod_evidence']]
             writer.writerow([safe(v) for v in values])
-        gate = next(i for i in assessment['template']['items'] if i['kind'] == 'applicability')
-        writer.writerow([safe(v) for v in [assessment['title'], assessment['system_name'], gate['number'], gate['control_id'], adapt(gate['question'], assessment), gate['evidence_required'], assessment['sod_mode'], assessment['sod_evidence'], '', assessment['owner'], '', '', 'Applicability decision only; no automatic N/A or compliance conclusion', '', '', 'Not a requirement status', '', '', 'SDLC.05 N/A evidence prerequisites satisfied' if sod_eligible(assessment) else 'SDLC.05 remains in scope until applicability is supported', f'{assessment["template"]["source_filename"]} / {assessment["template"]["source_sheet"]}!{gate["source_cell"]}', '', assessment['sod_mode'], assessment['sod_evidence']]])
         buffer = io.BytesIO(('\ufeff' + stream.getvalue()).encode('utf-8'))
         return send_file(buffer, as_attachment=True, download_name=(secure_filename(assessment['title']) or 'System_Implementation') + '.csv', mimetype='text/csv; charset=utf-8')

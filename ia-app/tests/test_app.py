@@ -116,6 +116,56 @@ class LabTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(lab.DATA_FILE.exists())
 
+    def test_csv_import_uses_csv_path_and_appends_resources(self):
+        self.resource(title='Existing')
+        payload = b'title,content,kind,status,tags\nImported control,Control design guidance,article,Published,"SOX, controls"\n'
+        response = self.client.post('/api/import', data={'file': (io.BytesIO(payload), 'resources.csv')})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['format'], 'csv')
+        self.assertEqual(response.json['imported'], 1)
+        resources = lab.read_store()['resources']
+        self.assertEqual([item['title'] for item in resources], ['Imported control', 'Existing'])
+        self.assertEqual(resources[0]['tags'], ['SOX', 'controls'])
+
+    def test_csv_import_reports_row_and_required_columns(self):
+        response = self.client.post('/api/import', data={'file': (io.BytesIO(b'name,value\na,b\n'), 'bad.csv')})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('title and content columns', response.json['error'])
+        self.assertNotIn('JSON backup object', response.json['error'])
+
+    def test_json_backup_import_replaces_workspace(self):
+        backup = lab.empty_store()
+        backup['resources'] = [{'title': 'Restored', 'content': 'Restored content', 'kind': 'article', 'status': 'Reviewed', 'category': '', 'tags': []}]
+        response = self.client.post('/api/import', data={'file': (io.BytesIO(json.dumps(backup).encode()), 'backup.json')})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['format'], 'json')
+        self.assertEqual(lab.read_store()['resources'][0]['title'], 'Restored')
+
+    def test_json_array_gets_json_specific_error(self):
+        response = self.client.post('/api/import', data={'file': (io.BytesIO(b'[]'), 'backup.json')})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json['error'], 'A JSON backup object is required.')
+
+    def test_control_design_coach_separates_missing_details_from_design_concerns(self):
+        response = self.client.post('/api/practice-agents/control-design', json={'risk':'Revenue may be recorded inaccurately','control':'Manager reviews the revenue reconciliation','performer':'Controller'})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('precision, thresholds, and evidence', response.json['missing_details'])
+        self.assertEqual(response.json['design_concerns'], [])
+        self.assertIn('not failures', response.json['assessment'])
+
+    def test_evidence_checker_not_found_is_not_failure(self):
+        response = self.client.post('/api/practice-agents/evidence-readiness', json={'requested_items':'UAT approval\nAccess listing','supplied_material':'uat-results.pdf page 4 business approval'})
+        self.assertEqual(response.status_code, 200)
+        missing = next(item for item in response.json['items'] if item['request'] == 'Access listing')
+        self.assertEqual(missing['status'], 'Not found in supplied index')
+        self.assertIn('does not mean the control failed', missing['follow_up'])
+
+    def test_scoping_explorer_flags_unknown_dependencies(self):
+        response = self.client.post('/api/practice-agents/scoping', json={'process':'Revenue close','systems':'ERP'})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Interfaces', response.json['unknown_dependencies'])
+        self.assertIn('human decision', response.json['potential_relevance'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -2,6 +2,7 @@
 from pathlib import Path
 import subprocess
 import threading
+import time
 
 
 SOURCES = {
@@ -17,6 +18,7 @@ SOURCES = {
     },
 }
 LOCK = threading.Lock()
+CACHE_SECONDS = 15 * 60
 
 
 def _run(args, timeout=90):
@@ -36,13 +38,23 @@ def sync_source(key, root):
     target = root / key
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with LOCK:
+        warning = ""
         if not (target / ".git").exists():
-            _run(["git", "clone", "--depth", "1", source["url"], str(target)], timeout=120)
+            try:
+                _run(["git", "clone", "--depth", "1", source["url"], str(target)], timeout=75)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError("The repository connection timed out before the source was cached. Retry once; if it continues, check Railway outbound access.") from exc
         else:
             remote = _run(["git", "-C", str(target), "remote", "get-url", "origin"])
             if remote.rstrip("/").removesuffix(".git") != source["url"].rstrip("/").removesuffix(".git"):
                 raise RuntimeError("Cached repository remote does not match the allowlisted source.")
-            _run(["git", "-C", str(target), "pull", "--ff-only"], timeout=120)
+            # Do not contact GitHub on every user request. A healthy cached clone
+            # keeps the workflow available during transient plugin/network issues.
+            if time.time() - (target / ".git" / "FETCH_HEAD").stat().st_mtime > CACHE_SECONDS if (target / ".git" / "FETCH_HEAD").exists() else True:
+                try:
+                    _run(["git", "-C", str(target), "pull", "--ff-only"], timeout=45)
+                except (subprocess.TimeoutExpired, RuntimeError):
+                    warning = "GitHub refresh was unavailable; the last verified cached commit was used."
         commit = _run(["git", "-C", str(target), "rev-parse", "HEAD"])
         committed_at = _run(["git", "-C", str(target), "show", "-s", "--format=%cI", "HEAD"])
-    return {**source, "commit": commit, "committed_at": committed_at, "path": str(target)}
+    return {**source, "commit": commit, "committed_at": committed_at, "path": str(target), "sync_warning": warning}
