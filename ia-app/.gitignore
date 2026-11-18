@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+.env
+.lab-*.tmp
+.DS_Store
+private_uploads/
+jd-lab.log
+data.json
