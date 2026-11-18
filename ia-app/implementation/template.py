@@ -39,7 +39,7 @@ TEMPLATE = {
              "Define roles and permissions, address conflicting duties, and approve the initial user access list. Limit administrator access and remove temporary implementation privileges after go-live.",
              "Approved role and permission design, segregation-of-duties review, initial user access approval, administrator listing, and evidence temporary access was removed."),
         item(5, "SOX.IMP.05", "Separate development and deployment",
-             "Separate development or configuration from production deployment and independent approval. If separation is incomplete, maintain a complete deployment log and obtain independent technical and business review of every production deployment.",
+             "Separate development/configuration from production deployment and independent approval. If separation is incomplete: Maintain a complete deployment log and obtain independent technical and business review of every production deployment.",
              "Role or responsibility matrix and deployment approvals. If separation is incomplete: complete deployment log plus independent technical and business review for every production deployment.",
              "Document the compensating review when full separation is not possible."),
         item(6, "SOX.IMP.06", "Authorize go-live",
