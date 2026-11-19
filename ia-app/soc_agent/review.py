@@ -265,12 +265,16 @@ def population_candidates(units):
 def merge_population(merged, result, documents):
     for collection in ('exceptions', 'cuecs', 'subservices'):
         for record in result[collection]:
-            validate_refs(record['references'], documents, required=True)
-            if collection == 'cuecs':
-                source_text = ' '.join(unit['text'] for document in documents for unit in document['units'])
-                if normalized(record['wording']) not in normalized(source_text):
-                    raise ReviewError('A CUEC did not preserve report wording. Retry; the unverified extraction was not accepted.')
-        merged[collection].extend(result[collection])
+            try:
+                validate_refs(record['references'], documents, required=True)
+                if collection == 'cuecs':
+                    source_text = ' '.join(unit['text'] for document in documents for unit in document['units'])
+                    if normalized(record['wording']) not in normalized(source_text):
+                        raise ReviewError('CUEC wording was not verified.')
+            except ReviewError:
+                merged['limitations'].append(f'An unsupported {collection[:-1]} candidate was omitted because its source reference could not be verified.')
+                continue
+            merged[collection].append(record)
     merged['limitations'].extend(result['limitations'])
 
 
@@ -288,17 +292,25 @@ def prepare_review(documents, context, progress):
         validate_shape(result, EXTRACT_SCHEMA)
         for key, fact in result['facts'].items():
             if fact['text']:
-                validate_refs(fact['references'], [section], required=True)
+                try:
+                    validate_refs(fact['references'], [section], required=True)
+                except ReviewError:
+                    merged['limitations'].append(f'An unsupported {key.replace("_", " ")} fact was omitted because its source reference could not be verified.')
+                    continue
                 merged['facts'][key].append(fact)
         for collection in ('exceptions', 'cuecs', 'subservices'):
             for record in result[collection]:
-                validate_refs(record['references'], [section], required=True)
-                if collection == 'cuecs':
-                    # Verbatim report wording, not a model paraphrase, is required for a CUEC.
-                    source_text = ' '.join(u['text'] for u in units)
-                    if normalized(record['wording']) not in normalized(source_text):
-                        raise ReviewError('A CUEC did not preserve report wording. Retry; the unverified extraction was not accepted.')
-            merged[collection].extend(result[collection])
+                try:
+                    validate_refs(record['references'], [section], required=True)
+                    if collection == 'cuecs':
+                        # Verbatim report wording, not a model paraphrase, is required for a CUEC.
+                        source_text = ' '.join(u['text'] for u in units)
+                        if normalized(record['wording']) not in normalized(source_text):
+                            raise ReviewError('CUEC wording was not verified.')
+                except ReviewError:
+                    merged['limitations'].append(f'An unsupported {collection[:-1]} candidate was omitted because its source reference could not be verified.')
+                    continue
+                merged[collection].append(record)
         merged['limitations'].extend(result['limitations'])
     # Broad extraction can miss a dense table or a requirement near a chunk boundary.
     # Re-read likely population pages with their neighbours and reconcile the lists.
