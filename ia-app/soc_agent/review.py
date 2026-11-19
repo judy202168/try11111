@@ -6,6 +6,7 @@ import json
 import os
 import re
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import requests
@@ -294,10 +295,18 @@ def prepare_review(documents, context, progress):
     bridge = next((d for d in documents if d['id'] == 'bridge'), None)
     groups = [(soc, units) for units in chunks(soc['units'])] + ([(bridge, units) for units in chunks(bridge['units'])] if bridge else [])
     merged = {'facts': {key: [] for key in FACT_NAMES}, 'exceptions': [], 'cuecs': [], 'subservices': [], 'limitations': []}
-    for i, (source_doc, units) in enumerate(groups, 1):
+
+    def extract_group(item):
+        i, (source_doc, units) = item
         progress('Reading SOC report', f'Extracting report section {i} of {len(groups)}; source pages are retained.')
         section = dict(source_doc, units=units)
         result = ask_ai('Read this report chunk closely. Extract ALL supported report facts, control/test exceptions (including exceptions later judged irrelevant), CUECs across every section, and actual subservice organizations. For general report facts, capture exact identity, legal entity, services, locations, scope inclusions/exclusions, opinion language, restricted-use language, report coverage, signed date, relevant control objectives, test nature/timing/extent/results, report/key-report descriptions, incidents and significant changes. Include exact printed-page references in the fact text when visible and retain the PDF locator in references. Do not treat a mentioned vendor as a subservice without support. For exceptions include exact control IDs, test result, population/sample/deviation counts, dates, root cause, management response and remediation when stated. Leave unknown fact text empty with no references. Do not treat narrative deficiencies as tested exceptions without distinguishing them. If source_id is bridge, extract bridge fields and management representations only; do not label them as service-auditor testing. Preserve every distinct CUEC in the report wording. Include limitations on interpreting tables, coverage, or missing context. No speculative current control mapping yet.', EXTRACT_SCHEMA, {'context': context, 'document': section})
+        return source_doc, units, section, result
+
+    workers = min(3, len(groups))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='soc-sections') as pool:
+        extracted_groups = list(pool.map(extract_group, enumerate(groups, 1)))
+    for source_doc, units, section, result in extracted_groups:
         validate_shape(result, EXTRACT_SCHEMA)
         if is_bridge_letter(source_doc) and result['facts']['opinion']['text']:
             result['facts']['opinion'] = {'text': '', 'references': []}
@@ -327,10 +336,22 @@ def prepare_review(documents, context, progress):
     # Broad extraction can miss a dense table or a requirement near a chunk boundary.
     # Re-read likely population pages with their neighbours and reconcile the lists.
     candidates = population_candidates(soc['units'])
-    for i, units in enumerate(chunks(candidates), 1):
-        progress('Reconciling report populations', f'Re-reading likely CUEC, exception and subservice pages {i} of {len(chunks(candidates))}.')
+    candidate_groups = chunks(candidates)
+
+    def reconcile_group(item):
+        i, units = item
+        progress('Reconciling report populations', f'Re-reading likely CUEC, exception and subservice pages {i} of {len(candidate_groups)}.')
         section = dict(soc, units=units)
         result = ask_ai('Completeness pass: extract EVERY distinct control/test exception, CUEC and actual subservice organization from these candidate pages. Preserve exact CUEC wording. Include exceptions even when management says they were resolved or the auditor opinion is unmodified. Include no-exception test details only when useful to reconcile the tested population; do not invent an exception. Do not classify an ordinary vendor as a subservice without explicit support. Cite every record with an exact quote and locator. Return empty arrays where the pages contain no qualifying record.', POPULATION_SCHEMA, {'context': context, 'document': section})
+        return section, result
+
+    if candidate_groups:
+        workers = min(3, len(candidate_groups))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='soc-populations') as pool:
+            population_results = list(pool.map(reconcile_group, enumerate(candidate_groups, 1)))
+    else:
+        population_results = []
+    for section, result in population_results:
         validate_shape(result, POPULATION_SCHEMA)
         merge_population(merged, result, [section])
     for collection, key in (('exceptions', 'description'), ('cuecs', 'wording'), ('subservices', 'name')):
