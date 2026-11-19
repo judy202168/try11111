@@ -120,6 +120,22 @@ class ReviewTests(unittest.TestCase):
         self.assertFalse(review.is_cuec(provider_control, [document('soc','Control 9.1 validates payroll.')]))
         self.assertFalse(review.is_actual_exception(no_exception))
 
+    def test_deterministic_report_anchors_capture_auditor_opinion_and_numbered_cuecs(self):
+        soc = {'id':'soc','filename':'report.pdf','sha256':'fixture','warnings':[],'units':[
+            {'locator':'PDF page 8','text':'INDEPENDENT SERVICE AUDITOR REPORT'},
+            {'locator':'PDF page 9','text':'Opinion\nIn our opinion, the controls operated effectively.'},
+            {'locator':'PDF page 22','text':'COMPLEMENTARY USER ENTITY CONTROLS\n1. User entities are responsible for verifying payroll.\n2. User entities are responsible for processing payroll on time.'},
+            {'locator':'PDF page 23','text':'SECTION 4'},
+            {'locator':'PDF page 24','text':'A-LIGN ASSURANCE’s examination of the controls.'},
+            {'locator':'PDF page 25','text':'Test Results\nNo exceptions noted.'},
+            {'locator':'PDF page 61','text':'Test Results\nNo exceptions noted.'},
+        ]}
+        facts, cuecs = review.deterministic_report_anchors(soc)
+        self.assertEqual(facts['auditor']['text'], 'A-LIGN ASSURANCE')
+        self.assertTrue(facts['opinion']['text'].startswith('In our opinion'))
+        self.assertEqual([item['key'] for item in cuecs], ['CUEC-1', 'CUEC-2'])
+        self.assertIn('no testing exceptions', facts['test_results']['text'])
+
     def test_dynamic_single_tab_template_population_and_safe_strings(self):
         result = prepared()
         original = result['cuecs'][0]
