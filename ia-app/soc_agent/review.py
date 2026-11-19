@@ -28,6 +28,15 @@ def normalized(text):
     return re.sub(r'\s+', ' ', text).strip().casefold()
 
 
+def is_bridge_letter(document):
+    """Identify bridge/coverage letters without treating them as auditor reports."""
+    filename = normalized(document.get('filename', ''))
+    opening = normalized(' '.join(unit.get('text', '') for unit in document.get('units', [])[:3]))
+    return bool(re.search(r'\bbridge\b.*\b(letter|ltr)\b|\b(letter|ltr)\b.*\bbridge\b', filename)) or (
+        'bridge letter' in opening or 'gap letter' in opening
+    )
+
+
 def extract_document(path, source_id, filename):
     """Read all supported content with deterministic page/cell locators; never truncate."""
     path = Path(path)
@@ -290,6 +299,9 @@ def prepare_review(documents, context, progress):
         section = dict(source_doc, units=units)
         result = ask_ai('Read this report chunk closely. Extract ALL supported report facts, control/test exceptions (including exceptions later judged irrelevant), CUECs across every section, and actual subservice organizations. For general report facts, capture exact identity, legal entity, services, locations, scope inclusions/exclusions, opinion language, restricted-use language, report coverage, signed date, relevant control objectives, test nature/timing/extent/results, report/key-report descriptions, incidents and significant changes. Include exact printed-page references in the fact text when visible and retain the PDF locator in references. Do not treat a mentioned vendor as a subservice without support. For exceptions include exact control IDs, test result, population/sample/deviation counts, dates, root cause, management response and remediation when stated. Leave unknown fact text empty with no references. Do not treat narrative deficiencies as tested exceptions without distinguishing them. If source_id is bridge, extract bridge fields and management representations only; do not label them as service-auditor testing. Preserve every distinct CUEC in the report wording. Include limitations on interpreting tables, coverage, or missing context. No speculative current control mapping yet.', EXTRACT_SCHEMA, {'context': context, 'document': section})
         validate_shape(result, EXTRACT_SCHEMA)
+        if is_bridge_letter(source_doc) and result['facts']['opinion']['text']:
+            result['facts']['opinion'] = {'text': '', 'references': []}
+            merged['limitations'].append('The uploaded document is a bridge letter, not the service auditor report; the auditor opinion was not provided.')
         for key, fact in result['facts'].items():
             if fact['text']:
                 try:
