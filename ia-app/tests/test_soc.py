@@ -227,3 +227,16 @@ class RouteTests(unittest.TestCase):
             response=self.client.get('/auth/google/callback')
             self.assertIn('google=connected',response.location)
         self.assertEqual(next(iter(self.services['tokens'].values()))['email'],'user@gmail.com')
+
+    def test_google_oauth_preserves_review_and_resumes_export(self):
+        run_id = str(__import__('uuid').uuid4())
+        self.data['soc_reviews'] = [{'id': run_id}]
+        authorization = self.app.response_class('', status=302, headers={'Location': 'https://accounts.google.com/o/oauth2/auth'})
+        with patch.object(self.services['google'], 'authorize_redirect', return_value=authorization):
+            response = self.client.get('/auth/google/connect?run_id=' + run_id)
+            self.assertEqual(response.status_code, 302)
+        with patch.object(self.services['google'], 'authorize_access_token', return_value={'userinfo': {'email': 'user@gmail.com', 'email_verified': True}, 'access_token': 'secret'}):
+            response = self.client.get('/auth/google/callback')
+        self.assertIn('google=connected', response.location)
+        self.assertIn('run=' + run_id, response.location)
+        self.assertIn('export=1', response.location)
