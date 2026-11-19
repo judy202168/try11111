@@ -344,7 +344,50 @@ def is_cuec(record, documents):
 def is_actual_exception(record):
     """A successful no-deviation test is coverage evidence, not a control exception."""
     text = normalized(' '.join(str(record.get(key, '')) for key in ('description', 'provider_response', 'evaluation')))
-    return not re.search(r'\bno (?:exceptions?|deviations?) (?:were )?(?:noted|identified|observed)\b', text)
+    if re.search(r'\bno (?:exceptions?|deviations?) (?:were )?(?:noted|identified|observed)\b', text):
+        return False
+    if 'not applicable' in text and 'subservice organization' in text:
+        return False
+    return True
+
+
+def deterministic_report_anchors(soc):
+    """Extract high-risk report anchors directly, independent of model classification."""
+    facts, cuecs = {}, []
+    for unit in soc['units']:
+        text = unit['text']
+        auditor = re.search(r"(?m)^\s*([A-Z][A-Z0-9& .'-]{2,80})[’']s examination\b", text)
+        if auditor:
+            name = ' '.join(auditor.group(1).split())
+            quote = ' '.join(auditor.group(0).split())
+            facts['auditor'] = {'text': name, 'references': [{'source_id': 'soc', 'locator': unit['locator'], 'quote': quote}]}
+        opinion = re.search(r'(?is)\bOpinion\s+(In our opinion,.*)', text)
+        if opinion:
+            wording = ' '.join(opinion.group(1).split())
+            facts['opinion'] = {'text': wording, 'references': [{'source_id': 'soc', 'locator': unit['locator'], 'quote': wording}]}
+
+    start = next((i for i, unit in enumerate(soc['units']) if re.search(r'(?im)^\s*complementary user entity controls\s*$', unit['text'])), None)
+    if start is not None:
+        end = next((i for i in range(start + 1, len(soc['units'])) if re.search(r'\bsection\s+4\b', normalized(soc['units'][i]['text']))), len(soc['units']))
+        section = '\n'.join(unit['text'] for unit in soc['units'][start:end])
+        for number, wording in re.findall(r'(?ms)^\s*(\d+)\.\s+(.+?)(?=^\s*\d+\.\s+|\Z)', section):
+            wording = ' '.join(wording.split())
+            if not re.search(r'\buser entit(?:y|ies)\b.{0,100}\bresponsib\w*\b', normalized(wording)):
+                continue
+            unit = next((unit for unit in soc['units'][start:end] if normalized(wording) in normalized(unit['text'])), None)
+            if unit:
+                cuecs.append({'key': f'CUEC-{number}', 'wording': wording, 'references': [{'source_id': 'soc', 'locator': unit['locator'], 'quote': wording}]})
+
+    section4 = soc['units'][end:] if start is not None and end < len(soc['units']) else []
+    section4_text = normalized(' '.join(unit['text'] for unit in section4))
+    positive_result = re.search(r'(?<!no )\bexceptions? noted\b|\bdeviations? (?:were )?(?:noted|identified|observed)\b', section4_text)
+    if section4 and 'no exceptions noted' in section4_text and not positive_result:
+        clean_units = [unit for unit in section4 if 'no exceptions noted' in normalized(unit['text'])]
+        refs = []
+        for unit in ([clean_units[0], clean_units[-1]] if len(clean_units) > 1 else clean_units):
+            refs.append({'source_id': 'soc', 'locator': unit['locator'], 'quote': 'No exceptions noted.'})
+        facts['test_results'] = {'text': 'Across the extracted Section 4 test results, no testing exceptions were reported; applicable results state “No exceptions noted.” Controls marked Not applicable are scope allocations, not testing exceptions.', 'references': refs}
+    return facts, cuecs
 
 
 def population_candidates(units):
@@ -459,6 +502,16 @@ def prepare_review(documents, context, progress):
     for collection, key in (('exceptions', 'description'), ('cuecs', 'wording')):
         merged[collection] = dedupe(merged[collection], key)
     merged['subservices'] = dedupe_subservices(merged['subservices'], merged['limitations'])
+    anchors, anchored_cuecs = deterministic_report_anchors(soc)
+    for key in ('auditor', 'opinion'):
+        if key in anchors:
+            merged['facts'][key] = [anchors[key]]
+    if 'test_results' in anchors:
+        merged['facts']['scope_and_tests'].append(anchors['test_results'])
+        merged['exceptions'] = []
+    if anchored_cuecs:
+        merged['cuecs'] = anchored_cuecs
+        merged['limitations'].append('The CUEC population was reconciled to the numbered Complementary User Entity Controls section in the source report.')
     for i, cuec in enumerate(merged['cuecs'], 1):
         cuec['id'] = f'CUEC-{i:03d}'
     mapping = []
