@@ -165,6 +165,18 @@ def register_soc(app, read_store, write_store, lock, activity, storage_root):
     def google_connect():
         if not configured:
             return redirect('/?google=not-configured#soc')
+        run_id = request.args.get('run_id', '').strip()
+        if run_id:
+            try:
+                uuid.UUID(run_id)
+            except ValueError:
+                return redirect('/?google=failed#soc')
+            with lock:
+                exists = any(run.get('id') == run_id for run in read_store().get('soc_reviews', []))
+            if not exists:
+                return redirect('/?google=failed#soc')
+            # Keep only the opaque review ID through OAuth. Source data never leaves server storage.
+            session['soc_google_return_run'] = run_id
         callback = os.environ.get('GOOGLE_REDIRECT_URI', request.host_url.rstrip('/') + '/auth/google/callback')
         try:
             return google.authorize_redirect(callback, prompt='select_account')
@@ -187,8 +199,12 @@ def register_soc(app, read_store, write_store, lock, activity, storage_root):
                         google_tokens.pop(key, None)
                 google_tokens[current_id] = {'access_token': token['access_token'], 'expires_at': float(token.get('expires_at', time.time()+int(token.get('expires_in', 3600)))), 'email': user['email']}
             session['soc_google_session'] = current_id
+            return_run = session.pop('soc_google_return_run', '')
+            if return_run:
+                return redirect(f'/?google=connected&run={return_run}&export=1#soc')
             return redirect('/?google=connected#soc')
         except Exception:
+            session.pop('soc_google_return_run', None)
             app.logger.warning('Google authorization failed (details suppressed to protect credentials)')
             return redirect('/?google=failed#soc')
 
