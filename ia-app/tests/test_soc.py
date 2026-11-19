@@ -91,6 +91,20 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(result['facts']['opinion'], [])
         self.assertTrue(any('auditor opinion was not provided' in item for item in result['limitations']))
 
+    def test_subservice_aliases_and_generic_cross_references_are_one_provider(self):
+        refs = [ref('soc','Amazon Web Services is the subservice organization.')]
+        items = [
+            {'name':'Amazon Web Services, Inc. (AWS)','scope':'Hosting','services':'Cloud','impact':'','provider_response':'','evaluation':'','references':copy.deepcopy(refs)},
+            {'name':'AWS','scope':'Hosting and backup','services':'Cloud hosting and automated backups','impact':'Relevant','provider_response':'Monitored','evaluation':'Carve-out','references':copy.deepcopy(refs)},
+            {'name':'Not explicitly named on these pages','scope':'Availability','services':'Not stated','impact':'','provider_response':'','evaluation':'','references':copy.deepcopy(refs)},
+        ]
+        limitations = []
+        result = review.dedupe_subservices(items, limitations)
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['name'],'Amazon Web Services, Inc. (AWS)')
+        self.assertEqual(result[0]['services'],'Cloud hosting and automated backups')
+        self.assertTrue(any('Generic subservice cross-references' in item for item in limitations))
+
     def test_dynamic_single_tab_template_population_and_safe_strings(self):
         result = prepared()
         original = result['cuecs'][0]
