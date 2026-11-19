@@ -383,11 +383,32 @@ def deterministic_report_anchors(soc):
     positive_result = re.search(r'(?<!no )\bexceptions? noted\b|\bdeviations? (?:were )?(?:noted|identified|observed)\b', section4_text)
     if section4 and 'no exceptions noted' in section4_text and not positive_result:
         clean_units = [unit for unit in section4 if 'no exceptions noted' in normalized(unit['text'])]
+        clean_count = len(re.findall(r'\bno exceptions? noted\b', section4_text))
+        scope_allocations = []
+        for unit in section4:
+            for control_id in re.findall(r'(?ims)^\s*(\d+\.\d+)\s+part of this control objective is the responsibility of the\s+subservice organization\..*?not applicable\.', unit['text']):
+                if control_id not in scope_allocations:
+                    scope_allocations.append(control_id)
         refs = []
         for unit in ([clean_units[0], clean_units[-1]] if len(clean_units) > 1 else clean_units):
             refs.append({'source_id': 'soc', 'locator': unit['locator'], 'quote': 'No exceptions noted.'})
-        facts['test_results'] = {'text': 'Across the extracted Section 4 test results, no testing exceptions were reported; applicable results state “No exceptions noted.” Controls marked Not applicable are scope allocations, not testing exceptions.', 'references': refs}
+        allocation_text = f' Controls {", ".join(scope_allocations)} are marked Not applicable because they are allocated to the subservice organization; they are scope exclusions, not failures.' if scope_allocations else ' Controls marked Not applicable are scope allocations, not testing exceptions.'
+        facts['test_results'] = {'text': f'Across the extracted Section 4 test results, no testing exceptions were reported; {clean_count} result entries state “No exceptions noted.”{allocation_text}', 'references': refs}
     return facts, cuecs
+
+
+def lock_verified_conclusions(summary, anchors, cuecs):
+    """Prevent narrative conclusions from contradicting deterministic report anchors."""
+    if anchors.get('auditor'):
+        opinion = anchors.get('opinion', {}).get('text', '')
+        opinion_label = 'Unmodified opinion' if 'in all material respects' in normalized(opinion) and not re.search(r'\b(qualified|adverse|disclaimer)\b', normalized(opinion)) else 'Auditor opinion'
+        summary['report_overview'] = f'Independent service auditor: {anchors["auditor"]["text"]}. {opinion_label}: {opinion}'
+    if cuecs:
+        rows = [f'{item["key"]}: {item["wording"]} [{item["references"][0]["locator"]}]' for item in cuecs]
+        summary['cuec_reconciliation'] = f'The numbered Complementary User Entity Controls section contains exactly {len(cuecs)} CUECs:\n- ' + '\n- '.join(rows) + '\nEach CUEC remains subject to current-company control mapping and human validation.'
+    if anchors.get('test_results'):
+        summary['exception_reconciliation'] = anchors['test_results']['text']
+    return summary
 
 
 def population_candidates(units):
@@ -576,6 +597,7 @@ def prepare_review(documents, context, progress):
     progress('Preparing review conclusions', 'Assessing coverage, exceptions, dependencies, changes, and open evidence needs. Human sign-off remains Pending.')
     summary = ask_ai('Prepare a complete but concise PROPOSED review that reads like a careful human workpaper, not a generic summary. Reconcile the exact report identity, service scope and exclusions; SOC 1/2 and Type 1/2 suitability; relevant ICFR objectives, assertions, test nature/timing/extent and results; all exceptions; every CUEC; reporting/key-report dependencies; subservice/CSOC responsibilities; coverage gaps and bridge limits; prior open items; incidents and material changes. State population counts only when supported, and explain what was actually inspected before saying no exceptions were identified. Assess adequacy only against confirmed reliance dates. Bridge letters are management representations, not extensions of auditor testing. Compare prior reviews only for the same system. Give a specific proposed risk rationale but keep the rating Pending if approved criteria or human evidence is missing. No final deficiency classification or human sign-off. Refer only to supplied evidence and locators. List prioritized, non-duplicative follow-ups and limitations. This remains a draft even when the report has an unmodified opinion.', SUMMARY_SCHEMA, {'context': context, 'extraction': merged, 'mappings': mapping, 'rcm': rcm, 'prior': prior, 'bridge': bridge, 'extraction_warnings': [w for d in documents for w in d['warnings']]})
     validate_shape(summary, SUMMARY_SCHEMA)
+    lock_verified_conclusions(summary, anchors, merged['cuecs'])
     warnings = [w for d in documents for w in d['warnings']]
     if not prior:
         warnings.append('Prior-year review not provided — historical mappings, changes, and prior open issues require confirmation.')
