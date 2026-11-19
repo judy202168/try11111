@@ -130,6 +130,8 @@ def register_soc(app, read_store, write_store, lock, activity, storage_root):
             suffix = Path(filename).suffix.lower()
             if suffix not in ALLOWED or (name == 'soc' and suffix != '.pdf'):
                 return jsonify(error='The current SOC report must be PDF. Other inputs support PDF, XLSX, CSV, DOCX, or TXT.'), 400
+            if name == 'soc' and re.search(r'(^|[_\-\s])bridge([_\-\s]|$)|bridge[_\-\s]*(ltr|letter)', filename, re.IGNORECASE):
+                return jsonify(error='The Current SOC report field contains a bridge letter. Upload the complete SOC report there, including the service auditor opinion, system description, tests, exceptions, and CUECs. Upload the bridge letter separately in Bridge letter or supporting evidence.'), 400
             chosen.append((name, file, filename))
         if not job_gate.acquire(blocking=False):
             return jsonify(error='Three reviews are already active or queued. Wait for one to finish before starting another.'), 429
