@@ -23,12 +23,15 @@ def ref(source_id, quote):
 
 
 def extracted():
-    return {'facts': {key: {'text': 'Verification provider' if key == 'provider' else '', 'references': [ref('soc', 'Verification provider')] if key == 'provider' else []} for key in review.FACT_NAMES}, 'exceptions': [], 'cuecs': [{'key': 'CUEC-1', 'wording': 'Review access quarterly.', 'references': [ref('soc','Review access quarterly.')]}], 'subservices': [], 'limitations': []}
+    return {'facts': {key: {'text': 'Verification provider' if key == 'provider' else '', 'references': [ref('soc', 'Verification provider')] if key == 'provider' else []} for key in review.FACT_NAMES}, 'exceptions': [], 'cuecs': [{'key': 'CUEC-1', 'wording': 'User entities are responsible for reviewing access quarterly.', 'references': [ref('soc','User entities are responsible for reviewing access quarterly.')]}], 'subservices': [], 'limitations': []}
 
 
 def fake_ai(stage, schema, payload):
     if schema is review.EXTRACT_SCHEMA:
         return extracted()
+    if schema is review.POPULATION_SCHEMA:
+        value = extracted()
+        return {key: value[key] for key in ('exceptions', 'cuecs', 'subservices', 'limitations')}
     if schema is review.MAP_SCHEMA:
         return {'mappings': [{'cuec_id': c['id'], 'applicability': 'Pending — confirm usage', 'historical_mapping': 'Not provided', 'current_mapping': 'Proposed CTRL-1 access review', 'control_ids': ['CTRL-1'], 'evidence_and_gaps': 'Current operating evidence is not provided.', 'references': [ref('rcm', 'CTRL-1: review access quarterly.')]} for c in payload['cuecs']]}
     return {'report_overview': 'Verification provider SOC review.', 'period_assessment': 'Pending — confirm reliance dates and bridge evidence.', 'reliance_assessment': 'Proposed draft; human review remains pending.', 'risk_rationale': 'Pending approved criteria.', 'change_assessment': 'Prior-year evidence not provided.', 'control_objective_assessment': 'Pending — confirm ICFR relevance.', 'test_results_assessment': 'Pending full test-population verification.', 'exception_reconciliation': 'No exceptions extracted — verify all tests.', 'cuec_reconciliation': 'One CUEC extracted and mapped.', 'subservice_assessment': 'No subservice extracted — verify the description.', 'follow_ups': ['Obtain current evidence.'], 'limitations': ['Source completeness requires human verification.']}
@@ -36,7 +39,7 @@ def fake_ai(stage, schema, payload):
 
 def prepared():
     with patch.object(review, 'ask_ai', side_effect=fake_ai):
-        return review.prepare_review([document('soc','Verification provider. Review access quarterly.'), document('rcm','CTRL-1: review access quarterly.')], {'review_year': '2026'}, lambda *args: None)
+        return review.prepare_review([document('soc','Verification provider. User entities are responsible for reviewing access quarterly.'), document('rcm','CTRL-1: review access quarterly.')], {'review_year': '2026'}, lambda *args: None)
 
 
 class ReviewTests(unittest.TestCase):
@@ -56,7 +59,7 @@ class ReviewTests(unittest.TestCase):
                 value['mappings'][0]['control_ids'] = ['MADE-UP-ID']
             return value
         with patch.object(review, 'ask_ai', side_effect=wrong_id):
-            result = review.prepare_review([document('soc','Verification provider. Review access quarterly.'),document('rcm','CTRL-1: review access quarterly.')], {}, lambda *args: None)
+            result = review.prepare_review([document('soc','Verification provider. User entities are responsible for reviewing access quarterly.'),document('rcm','CTRL-1: review access quarterly.')], {}, lambda *args: None)
         self.assertEqual(result['mappings'][0]['control_ids'],[])
         self.assertIn('unverified mapping omitted',result['mappings'][0]['status'])
         self.assertTrue(any('unverified RCM mapping was omitted' in item for item in result['limitations']))
@@ -69,14 +72,14 @@ class ReviewTests(unittest.TestCase):
                 value['exceptions'] = [{'key':'EX-1','description':'Unsupported exception','provider_response':'','evaluation':'','references':[]}]
             return value
         with patch.object(review, 'ask_ai', side_effect=one_unsupported):
-            result = review.prepare_review([document('soc','Verification provider. Review access quarterly.'), document('rcm','CTRL-1: review access quarterly.')], {'review_year':'2026'}, lambda *args: None)
+            result = review.prepare_review([document('soc','Verification provider. User entities are responsible for reviewing access quarterly.'), document('rcm','CTRL-1: review access quarterly.')], {'review_year':'2026'}, lambda *args: None)
         self.assertEqual(result['facts']['auditor'], [])
         self.assertEqual(result['exceptions'], [])
         self.assertTrue(any('source reference could not be verified' in item for item in result['limitations']))
 
     def test_review_without_optional_rcm_keeps_mappings_pending(self):
         with patch.object(review, 'ask_ai', side_effect=fake_ai):
-            result = review.prepare_review([document('soc','Verification provider. Review access quarterly.')], {'review_year':'2026'}, lambda *args: None)
+            result = review.prepare_review([document('soc','Verification provider. User entities are responsible for reviewing access quarterly.')], {'review_year':'2026'}, lambda *args: None)
         self.assertEqual(result['mappings'][0]['current_mapping'], 'Pending — company RCM was not uploaded.')
         self.assertEqual(result['mappings'][0]['control_ids'], [])
         self.assertTrue(any('Company RCM not provided' in item for item in result['limitations']))
@@ -108,6 +111,15 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(result[0]['services'],'Cloud hosting and automated backups')
         self.assertTrue(any('Generic subservice cross-references' in item for item in limitations))
 
+    def test_population_classification_rejects_provider_controls_and_no_exception_tests(self):
+        source = document('soc', 'Complementary User Entity Controls\nUser entities are responsible for verifying payroll.\nControl 9.1 validates payroll. No exceptions were noted.')
+        real = {'key':'CUEC-1','wording':'User entities are responsible for verifying payroll.','references':[ref('soc','User entities are responsible for verifying payroll.')]}
+        provider_control = {'key':'9.1','wording':'Control 9.1 validates payroll.','references':[ref('soc','Control 9.1 validates payroll.')]}
+        no_exception = {'description':'Control 9.1 was tested. No exceptions were noted.','provider_response':'','evaluation':''}
+        self.assertTrue(review.is_cuec(real, [source]))
+        self.assertFalse(review.is_cuec(provider_control, [document('soc','Control 9.1 validates payroll.')]))
+        self.assertFalse(review.is_actual_exception(no_exception))
+
     def test_dynamic_single_tab_template_population_and_safe_strings(self):
         result = prepared()
         original = result['cuecs'][0]
@@ -121,7 +133,7 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(sheet['properties']['title'], 'SOC REVIEW')
         cells = [cell for row in sheet['data'][0]['rowData'] for cell in row['values']]
         strings = [cell.get('userEnteredValue',{}).get('stringValue','') for cell in cells]
-        self.assertEqual(sum('Review access quarterly.' in text or '=IMPORTXML' in text for text in strings), 27)
+        self.assertEqual(sum('reviewing access quarterly.' in text or '=IMPORTXML' in text for text in strings), 27)
         self.assertTrue(any('Sign-Offs:' in text for text in strings))
         self.assertFalse(any('formulaValue' in cell.get('userEnteredValue',{}) for cell in cells))
         self.assertFalse(any('[CUEC wording' in text for text in strings))
