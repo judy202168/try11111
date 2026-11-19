@@ -406,10 +406,21 @@ def prepare_review(documents, context, progress):
         } for cuec in merged['cuecs']]
         if merged['cuecs']:
             merged['limitations'].append('Company RCM not provided — CUEC-to-control mappings remain Pending.')
-    for i in range(0, len(merged['cuecs']), 8) if rcm else ():
-        batch = merged['cuecs'][i:i+8]
+    mapping_batches = [(i, merged['cuecs'][i:i+8]) for i in range(0, len(merged['cuecs']), 8)] if rcm else []
+
+    def map_cuec_batch(item):
+        i, batch = item
         progress('Mapping CUECs to the RCM', f'Reviewing CUECs {i+1}–{i+len(batch)} of {len(merged["cuecs"])} against current controls and historical evidence.')
         output = ask_ai('Return one mapping for EVERY cuec_id provided. Use only uploaded rcm for proposed current controls. Use prior only for same-system historical reference; verify provider identity before carrying any mapping. A prior review is not current operating evidence. Document new/changed/removed requirements in evidence_and_gaps where supported. Control IDs must literally occur in the cited RCM quotes. Preserve a documented key procedure without fabricating an ID. No matching control means Pending and a specific gap. Applicability is proposed until actual Opendoor use is confirmed. Record evidence, owner-confirmation gaps and follow-ups; never imply current operation was tested from an RCM description alone. Cite all mapping claims with exact quotes. Do not use Addressed as a status.', MAP_SCHEMA, {'context': context, 'provider_facts': merged['facts']['provider'], 'cuecs': batch, 'rcm': rcm, 'prior': prior})
+        return batch, output
+
+    if mapping_batches:
+        # Mapping batches are independent. Two workers reduce latency without creating a large API burst.
+        with ThreadPoolExecutor(max_workers=min(2, len(mapping_batches)), thread_name_prefix='soc-mappings') as pool:
+            mapping_results = list(pool.map(map_cuec_batch, mapping_batches))
+    else:
+        mapping_results = []
+    for batch, output in mapping_results:
         validate_shape(output, MAP_SCHEMA)
         records = output['mappings']
         if len(records) != len(batch) or {r['cuec_id'] for r in records} != {r['id'] for r in batch}:
