@@ -170,9 +170,12 @@ def ask_ai(stage, schema, payload):
     # Workflow requirements are curated from the supplied agent description; source retrieval links are not followed.
     instructions = instructions[:instructions.index('## Deliver the file')]
     schema_guide = (BASE / 'references' / 'review-schema.md').read_text(encoding='utf-8')
+    # Reserving an unnecessarily large completion on every chunk can itself trigger TPM 429s.
+    # These strict schemas fit comfortably within the stage-specific limits below.
+    max_output_tokens = 10000 if schema is EXTRACT_SCHEMA else 7000 if schema in (POPULATION_SCHEMA, MAP_SCHEMA) else 5000
     request_data = {'model': os.environ.get('SOC_REVIEW_MODEL', os.environ.get('OPENAI_MODEL', 'gpt-4.1')), 'store': False,
                     'instructions': SAFETY + '\n\n' + instructions + '\n\n' + schema_guide + '\n\nCURRENT TASK:\n' + stage,
-                    'input': json.dumps(payload, ensure_ascii=False), 'max_output_tokens': 22000,
+                    'input': json.dumps(payload, ensure_ascii=False), 'max_output_tokens': max_output_tokens,
                     'text': {'format': {'type': 'json_schema', 'name': 'soc_review', 'strict': True, 'schema': schema}}}
     try:
         response = None
@@ -355,8 +358,8 @@ def prepare_review(documents, context, progress):
         result = ask_ai('Read this report chunk closely. Extract ALL supported report facts, control/test exceptions (including exceptions later judged irrelevant), CUECs across every section, and actual subservice organizations. For general report facts, capture exact identity, legal entity, services, locations, scope inclusions/exclusions, opinion language, restricted-use language, report coverage, signed date, relevant control objectives, test nature/timing/extent/results, report/key-report descriptions, incidents and significant changes. Include exact printed-page references in the fact text when visible and retain the PDF locator in references. Do not treat a mentioned vendor as a subservice without support. For exceptions include exact control IDs, test result, population/sample/deviation counts, dates, root cause, management response and remediation when stated. Leave unknown fact text empty with no references. Do not treat narrative deficiencies as tested exceptions without distinguishing them. If source_id is bridge, extract bridge fields and management representations only; do not label them as service-auditor testing. Preserve every distinct CUEC in the report wording. Include limitations on interpreting tables, coverage, or missing context. No speculative current control mapping yet.', EXTRACT_SCHEMA, {'context': context, 'document': section})
         return source_doc, units, section, result
 
-    # Large report chunks can consume substantial tokens; two workers balance speed with API rate limits.
-    workers = min(2, len(groups))
+    # Large report chunks are intentionally serialized to stay within lower-tier TPM limits.
+    workers = 1
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='soc-sections') as pool:
         extracted_groups = list(pool.map(extract_group, enumerate(groups, 1)))
     for source_doc, units, section, result in extracted_groups:
@@ -399,7 +402,7 @@ def prepare_review(documents, context, progress):
         return section, result
 
     if candidate_groups:
-        workers = min(3, len(candidate_groups))
+        workers = 1
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='soc-populations') as pool:
             population_results = list(pool.map(reconcile_group, enumerate(candidate_groups, 1)))
     else:
@@ -435,8 +438,7 @@ def prepare_review(documents, context, progress):
         return batch, output
 
     if mapping_batches:
-        # Mapping batches are independent. Two workers reduce latency without creating a large API burst.
-        with ThreadPoolExecutor(max_workers=min(2, len(mapping_batches)), thread_name_prefix='soc-mappings') as pool:
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix='soc-mappings') as pool:
             mapping_results = list(pool.map(map_cuec_batch, mapping_batches))
     else:
         mapping_results = []
