@@ -31,7 +31,7 @@ def fake_ai(stage, schema, payload):
         return extracted()
     if schema is review.MAP_SCHEMA:
         return {'mappings': [{'cuec_id': c['id'], 'applicability': 'Pending — confirm usage', 'historical_mapping': 'Not provided', 'current_mapping': 'Proposed CTRL-1 access review', 'control_ids': ['CTRL-1'], 'evidence_and_gaps': 'Current operating evidence is not provided.', 'references': [ref('rcm', 'CTRL-1: review access quarterly.')]} for c in payload['cuecs']]}
-    return {'period_assessment': 'Pending — confirm reliance dates and bridge evidence.', 'reliance_assessment': 'Proposed draft; human review remains pending.', 'change_assessment': 'Prior-year evidence not provided.', 'control_objective_assessment': 'Pending — confirm ICFR relevance.', 'follow_ups': ['Obtain current evidence.'], 'limitations': ['Source completeness requires human verification.']}
+    return {'report_overview': 'Verification provider SOC review.', 'period_assessment': 'Pending — confirm reliance dates and bridge evidence.', 'reliance_assessment': 'Proposed draft; human review remains pending.', 'risk_rationale': 'Pending approved criteria.', 'change_assessment': 'Prior-year evidence not provided.', 'control_objective_assessment': 'Pending — confirm ICFR relevance.', 'test_results_assessment': 'Pending full test-population verification.', 'exception_reconciliation': 'No exceptions extracted — verify all tests.', 'cuec_reconciliation': 'One CUEC extracted and mapped.', 'subservice_assessment': 'No subservice extracted — verify the description.', 'follow_ups': ['Obtain current evidence.'], 'limitations': ['Source completeness requires human verification.']}
 
 
 def prepared():
