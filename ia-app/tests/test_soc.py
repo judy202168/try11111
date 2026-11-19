@@ -161,6 +161,7 @@ class ReviewTests(unittest.TestCase):
         with patch.dict(os.environ, {'OPENAI_API_KEY':'test'}), patch.object(review.requests, 'post', side_effect=[limited, completed]) as send, patch.object(review.time, 'sleep'):
             result = review.ask_ai('Test', review.SUMMARY_SCHEMA, {})
         self.assertEqual(send.call_count, 2)
+        self.assertEqual(send.call_args_list[0].kwargs['json']['max_output_tokens'], 5000)
         self.assertIn('report_overview', result)
 
 
