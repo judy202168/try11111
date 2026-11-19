@@ -58,6 +58,19 @@ class ReviewTests(unittest.TestCase):
         with patch.object(review, 'ask_ai', side_effect=wrong_id), self.assertRaises(review.ReviewError):
             review.prepare_review([document('soc','Verification provider. Review access quarterly.'),document('rcm','CTRL-1: review access quarterly.')], {}, lambda *args: None)
 
+    def test_unsupported_extracted_item_is_omitted_without_failing_review(self):
+        def one_unsupported(stage, schema, payload):
+            value = fake_ai(stage, schema, payload)
+            if schema is review.EXTRACT_SCHEMA:
+                value['facts']['auditor'] = {'text': 'Unsupported auditor', 'references': []}
+                value['exceptions'] = [{'key':'EX-1','description':'Unsupported exception','provider_response':'','evaluation':'','references':[]}]
+            return value
+        with patch.object(review, 'ask_ai', side_effect=one_unsupported):
+            result = review.prepare_review([document('soc','Verification provider. Review access quarterly.'), document('rcm','CTRL-1: review access quarterly.')], {'review_year':'2026'}, lambda *args: None)
+        self.assertEqual(result['facts']['auditor'], [])
+        self.assertEqual(result['exceptions'], [])
+        self.assertTrue(any('source reference could not be verified' in item for item in result['limitations']))
+
     def test_dynamic_single_tab_template_population_and_safe_strings(self):
         result = prepared()
         original = result['cuecs'][0]
