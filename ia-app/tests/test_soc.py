@@ -135,6 +135,11 @@ class ReviewTests(unittest.TestCase):
         self.assertTrue(facts['opinion']['text'].startswith('In our opinion'))
         self.assertEqual([item['key'] for item in cuecs], ['CUEC-1', 'CUEC-2'])
         self.assertIn('no testing exceptions', facts['test_results']['text'])
+        summary = fake_ai('', review.SUMMARY_SCHEMA, {})
+        review.lock_verified_conclusions(summary, facts, cuecs)
+        self.assertIn('A-LIGN ASSURANCE', summary['report_overview'])
+        self.assertIn('exactly 2 CUECs', summary['cuec_reconciliation'])
+        self.assertEqual(summary['exception_reconciliation'], facts['test_results']['text'])
 
     def test_dynamic_single_tab_template_population_and_safe_strings(self):
         result = prepared()
@@ -149,7 +154,7 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(sheet['properties']['title'], 'SOC REVIEW')
         cells = [cell for row in sheet['data'][0]['rowData'] for cell in row['values']]
         strings = [cell.get('userEnteredValue',{}).get('stringValue','') for cell in cells]
-        self.assertEqual(sum('reviewing access quarterly.' in text or '=IMPORTXML' in text for text in strings), 27)
+        self.assertEqual(sum('reviewing access quarterly.' in text or '=IMPORTXML' in text for text in strings), 28)
         self.assertTrue(any('Sign-Offs:' in text for text in strings))
         self.assertFalse(any('formulaValue' in cell.get('userEnteredValue',{}) for cell in cells))
         self.assertFalse(any('[CUEC wording' in text for text in strings))
