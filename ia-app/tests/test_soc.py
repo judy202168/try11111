@@ -71,6 +71,13 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(result['exceptions'], [])
         self.assertTrue(any('source reference could not be verified' in item for item in result['limitations']))
 
+    def test_review_without_optional_rcm_keeps_mappings_pending(self):
+        with patch.object(review, 'ask_ai', side_effect=fake_ai):
+            result = review.prepare_review([document('soc','Verification provider. Review access quarterly.')], {'review_year':'2026'}, lambda *args: None)
+        self.assertEqual(result['mappings'][0]['current_mapping'], 'Pending — company RCM was not uploaded.')
+        self.assertEqual(result['mappings'][0]['control_ids'], [])
+        self.assertTrue(any('Company RCM not provided' in item for item in result['limitations']))
+
     def test_dynamic_single_tab_template_population_and_safe_strings(self):
         result = prepared()
         original = result['cuecs'][0]
@@ -174,6 +181,11 @@ class RouteTests(unittest.TestCase):
             self.assertEqual(send.call_count,1)
         self.assertNotIn('not-real',json.dumps(self.data))
         self.assertEqual(len(self.data['soc_reviews']),1)
+
+    def test_background_upload_accepts_soc_without_rcm(self):
+        with patch.object(routes,'extract_document',return_value=document('soc','Test source')), patch.object(routes,'prepare_review',return_value=prepared()):
+            response = self.client.post('/api/soc/reviews',data={'title':'Verification','review_year':'2026','consent':'yes','soc':(io.BytesIO(b'%PDF test'),'soc.pdf')})
+        self.assertEqual(response.status_code,202)
 
     def test_google_domain_verified_membership_required(self):
         for user in ({'hd':'outside.test','email':'user@opendoor.com','email_verified':True}, {'email':'user@opendoor.com','email_verified':True}, {'hd':'opendoor.com','email':'user@opendoor.com','email_verified':False}):
