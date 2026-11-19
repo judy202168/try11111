@@ -47,7 +47,7 @@ class ReviewTests(unittest.TestCase):
         self.assertIn('Pending', result['sign_off'])
         self.assertTrue(any('Prior-year' in x for x in result['limitations']))
 
-    def test_hallucinated_quotes_and_control_ids_rejected(self):
+    def test_hallucinated_quotes_raise_but_unsupported_mapping_is_omitted(self):
         with self.assertRaises(review.ReviewError):
             review.validate_refs([ref('soc','not in the source')], [document('soc','Real text')], True)
         def wrong_id(stage, schema, payload):
@@ -55,8 +55,11 @@ class ReviewTests(unittest.TestCase):
             if schema is review.MAP_SCHEMA:
                 value['mappings'][0]['control_ids'] = ['MADE-UP-ID']
             return value
-        with patch.object(review, 'ask_ai', side_effect=wrong_id), self.assertRaises(review.ReviewError):
-            review.prepare_review([document('soc','Verification provider. Review access quarterly.'),document('rcm','CTRL-1: review access quarterly.')], {}, lambda *args: None)
+        with patch.object(review, 'ask_ai', side_effect=wrong_id):
+            result = review.prepare_review([document('soc','Verification provider. Review access quarterly.'),document('rcm','CTRL-1: review access quarterly.')], {}, lambda *args: None)
+        self.assertEqual(result['mappings'][0]['control_ids'],[])
+        self.assertIn('unverified mapping omitted',result['mappings'][0]['status'])
+        self.assertTrue(any('unverified RCM mapping was omitted' in item for item in result['limitations']))
 
     def test_unsupported_extracted_item_is_omitted_without_failing_review(self):
         def one_unsupported(stage, schema, payload):
