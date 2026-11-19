@@ -78,6 +78,19 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(result['mappings'][0]['control_ids'], [])
         self.assertTrue(any('Company RCM not provided' in item for item in result['limitations']))
 
+    def test_bridge_letter_does_not_create_an_auditor_opinion(self):
+        bridge = document('soc','Bridge letter. There were no material changes during the gap period.')
+        bridge['filename'] = 'Provider_Bridge_Letter.pdf'
+        def bridge_ai(stage, schema, payload):
+            value = fake_ai(stage, schema, payload)
+            if schema is review.EXTRACT_SCHEMA:
+                value['facts']['opinion'] = {'text':'Bridge letter only. No restatement of SOC 1 Type II opinion.','references':[ref('soc','Bridge letter')]}
+            return value
+        with patch.object(review, 'ask_ai', side_effect=bridge_ai):
+            result = review.prepare_review([bridge], {'review_year':'2026'}, lambda *args: None)
+        self.assertEqual(result['facts']['opinion'], [])
+        self.assertTrue(any('auditor opinion was not provided' in item for item in result['limitations']))
+
     def test_dynamic_single_tab_template_population_and_safe_strings(self):
         result = prepared()
         original = result['cuecs'][0]
