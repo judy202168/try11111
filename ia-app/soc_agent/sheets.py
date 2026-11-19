@@ -60,9 +60,32 @@ def sheet_payload(review):
     for row, key in ((5,'provider'), (8,'report_type'), (9,'title'), (10,'period'), (11,'auditor'), (12,'report_date'), (13,'opinion'), (15,'bridge_period'), (16,'bridge_date'), (17,'bridge_signer')):
         values[row] = {3: fact_text(review, key)}
     values[9][3] += '\nActual Opendoor usage: ' + (review['context'].get('usage') or 'Pending — confirm actual service usage and ICFR scope.')
+    values[9][3] += '\nServices, locations and system scope: ' + fact_text(review, 'services_and_locations')
+    values[9][3] += '\nScope exclusions and reliance limits: ' + fact_text(review, 'scope_exclusions')
     values[10][3] += '\nIntended reliance: ' + (review['context'].get('reliance_start') or 'Not provided') + ' to ' + (review['context'].get('reliance_end') or 'Not provided') + '\nFiscal year-end: ' + (review['context'].get('fiscal_year_end') or 'Not provided')
     values[50] = {4: 'PROPOSED ASSESSMENT — HUMAN REVIEW PENDING\n' + review['summary']['period_assessment']}
-    conclusion = ['PROPOSED ASSESSMENT — HUMAN REVIEW PENDING', review['summary']['reliance_assessment'], 'Objectives/tests and ICFR relevance: ' + review['summary']['control_objective_assessment'], fact_text(review,'scope_and_tests'), 'Prior-year and significant changes: ' + review['summary']['change_assessment'], 'Risk rating: ' + review['risk_rating'], 'Formal deficiency evaluation: Pending — apply approved SOX methodology and document human evaluation.', 'Population reconciliation (extracted, not independently verified): ' + ', '.join(f'{key}: {value}' for key, value in review['counts'].items()), 'Outstanding actions:\n' + '\n'.join(review['summary']['follow_ups']), 'Evidence and completeness limitations:\n' + '\n'.join(review['limitations']), 'Final decision and sign-off: Pending — human verification of the report, mappings, evidence, coverage, and required approvals.']
+    conclusion = [
+        'PROPOSED ASSESSMENT — HUMAN REVIEW PENDING',
+        review['summary']['report_overview'],
+        review['summary']['reliance_assessment'],
+        'Risk rationale: ' + review['summary']['risk_rationale'],
+        'Objectives, tests and ICFR relevance: ' + review['summary']['control_objective_assessment'],
+        'Test results: ' + review['summary']['test_results_assessment'],
+        fact_text(review, 'scope_and_tests'),
+        'Exception reconciliation: ' + review['summary']['exception_reconciliation'],
+        'CUEC reconciliation: ' + review['summary']['cuec_reconciliation'],
+        'Subservice assessment: ' + review['summary']['subservice_assessment'],
+        'Reporting and key-report dependencies: ' + fact_text(review, 'reporting_and_key_reports'),
+        'Prior-year and significant changes: ' + review['summary']['change_assessment'],
+        fact_text(review, 'significant_changes_and_incidents'),
+        'Restricted-use considerations: ' + fact_text(review, 'restricted_use'),
+        'Risk rating: ' + review['risk_rating'],
+        'Formal deficiency evaluation: Pending — apply approved SOX methodology and document human evaluation.',
+        'Population reconciliation (extracted, not independently verified): ' + ', '.join(f'{key}: {value}' for key, value in review['counts'].items()),
+        'Outstanding actions:\n' + '\n'.join(review['summary']['follow_ups']),
+        'Evidence and completeness limitations:\n' + '\n'.join(review['limitations']),
+        'Final decision and sign-off: Pending — human verification of the report, mappings, evidence, coverage, and required approvals.',
+    ]
     values[51] = {4: '\n\n'.join(conclusion)}
     if len(values[51][4]) > 45000:
         raise ReviewError('The conclusion exceeds a Google Sheets cell limit. Use a scoped report; no content was omitted.')
@@ -71,7 +94,7 @@ def sheet_payload(review):
     for i, item in enumerate(review['exceptions'], 1):
         exceptions.append({1: str(i), 2: item['key'] + '\n' + item['description'] + '\nSource: ' + ref_text(item['references'], sources), 3: item['provider_response'] or 'Not provided', 4: 'PROPOSED — OWNER REVIEW PENDING\n' + item['evaluation']})
     if not exceptions:
-        exceptions = [{1: '—', 2: 'No exceptions extracted — Pending verification against all auditor tests and exception pages.', 3: 'Not applicable to extracted population; completeness is unconfirmed.', 4: 'Pending — absence of extracted exceptions is not a no-exception conclusion.'}]
+        exceptions = [{1: '—', 2: review['summary']['exception_reconciliation'], 3: 'Not applicable unless the report includes a management response or remediation.', 4: 'PROPOSED — OWNER REVIEW PENDING\n' + review['summary']['test_results_assessment']}]
     cuecs = []
     for i, item in enumerate(review['cuecs'], 1):
         m = mapping[item['id']]
