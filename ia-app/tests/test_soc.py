@@ -200,9 +200,13 @@ class RouteTests(unittest.TestCase):
             response = self.client.post('/api/soc/reviews',data={'title':'Verification','review_year':'2026','consent':'yes','soc':(io.BytesIO(b'%PDF test'),'soc.pdf')})
         self.assertEqual(response.status_code,202)
 
-    def test_google_domain_verified_membership_required(self):
-        for user in ({'hd':'outside.test','email':'user@opendoor.com','email_verified':True}, {'email':'user@opendoor.com','email_verified':True}, {'hd':'opendoor.com','email':'user@opendoor.com','email_verified':False}):
+    def test_google_verified_email_required_without_domain_restriction(self):
+        for user in ({'email':'','email_verified':True}, {'email':'user@gmail.com','email_verified':False}):
             with patch.object(self.services['google'],'authorize_access_token',return_value={'userinfo':user,'access_token':'secret'}):
                 response=self.client.get('/auth/google/callback')
                 self.assertIn('domain-denied',response.location)
         self.assertEqual(self.services['tokens'],{})
+        with patch.object(self.services['google'],'authorize_access_token',return_value={'userinfo':{'email':'user@gmail.com','email_verified':True},'access_token':'secret'}):
+            response=self.client.get('/auth/google/callback')
+            self.assertIn('google=connected',response.location)
+        self.assertEqual(next(iter(self.services['tokens'].values()))['email'],'user@gmail.com')
