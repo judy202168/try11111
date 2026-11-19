@@ -154,14 +154,15 @@ class ReviewTests(unittest.TestCase):
                 review.ask_ai('Test', review.SUMMARY_SCHEMA, {})
 
     def test_ai_rate_limit_is_retried(self):
-        limited = Mock(ok=False, status_code=429, headers={'Retry-After': '1'})
+        limited = Mock(ok=False, status_code=429, headers={'Retry-After': '1', 'x-ratelimit-reset-tokens': '1m2s'})
         limited.json.return_value = {'error': {'code': 'rate_limit_exceeded'}}
         completed = Mock(ok=True)
         completed.json.return_value = {'status': 'completed', 'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(fake_ai('', review.SUMMARY_SCHEMA, {}))}]}]}
-        with patch.dict(os.environ, {'OPENAI_API_KEY':'test'}), patch.object(review.requests, 'post', side_effect=[limited, completed]) as send, patch.object(review.time, 'sleep'):
+        with patch.dict(os.environ, {'OPENAI_API_KEY':'test'}), patch.object(review.requests, 'post', side_effect=[limited, completed]) as send, patch.object(review.time, 'sleep') as wait:
             result = review.ask_ai('Test', review.SUMMARY_SCHEMA, {})
         self.assertEqual(send.call_count, 2)
-        self.assertEqual(send.call_args_list[0].kwargs['json']['max_output_tokens'], 5000)
+        self.assertGreaterEqual(wait.call_args.args[0], 62)
+        self.assertEqual(send.call_args_list[0].kwargs['json']['max_output_tokens'], 4000)
         self.assertIn('report_overview', result)
 
 
