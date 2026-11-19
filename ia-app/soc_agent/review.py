@@ -4,7 +4,9 @@ import hashlib
 import io
 import json
 import os
+import random
 import re
+import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -173,9 +175,26 @@ def ask_ai(stage, schema, payload):
                     'input': json.dumps(payload, ensure_ascii=False), 'max_output_tokens': 22000,
                     'text': {'format': {'type': 'json_schema', 'name': 'soc_review', 'strict': True, 'schema': schema}}}
     try:
-        response = requests.post('https://api.openai.com/v1/responses', json=request_data, headers={'Authorization': 'Bearer ' + key}, timeout=(15, 180))
-        if not response.ok:
-            raise ReviewError(f'AI service returned HTTP {response.status_code}. Check the API key, model access, quota, and input size. Retry the review.')
+        response = None
+        for attempt in range(5):
+            response = requests.post('https://api.openai.com/v1/responses', json=request_data, headers={'Authorization': 'Bearer ' + key}, timeout=(15, 180))
+            if response.ok:
+                break
+            error_code = ''
+            try:
+                error_code = response.json().get('error', {}).get('code', '')
+            except (ValueError, TypeError, AttributeError):
+                pass
+            if response.status_code == 429 and error_code == 'insufficient_quota':
+                raise ReviewError('The OpenAI API account has no available quota. Add billing or usage capacity, then retry the review.')
+            if response.status_code not in (429, 500, 502, 503, 504) or attempt == 4:
+                raise ReviewError(f'AI service returned HTTP {response.status_code}. Check the API key, model access, quota, and input size. Retry the review.')
+            retry_after = response.headers.get('Retry-After', '')
+            try:
+                delay = min(30.0, max(1.0, float(retry_after)))
+            except (TypeError, ValueError):
+                delay = (2, 5, 10, 20)[attempt]
+            time.sleep(delay + random.uniform(0, 1.0))
         output = response.json()
         if output.get('status') != 'completed':
             raise ReviewError('AI output was incomplete or refused. No partial review was marked complete. Retry with a scoped report or a suitable model.')
@@ -336,7 +355,8 @@ def prepare_review(documents, context, progress):
         result = ask_ai('Read this report chunk closely. Extract ALL supported report facts, control/test exceptions (including exceptions later judged irrelevant), CUECs across every section, and actual subservice organizations. For general report facts, capture exact identity, legal entity, services, locations, scope inclusions/exclusions, opinion language, restricted-use language, report coverage, signed date, relevant control objectives, test nature/timing/extent/results, report/key-report descriptions, incidents and significant changes. Include exact printed-page references in the fact text when visible and retain the PDF locator in references. Do not treat a mentioned vendor as a subservice without support. For exceptions include exact control IDs, test result, population/sample/deviation counts, dates, root cause, management response and remediation when stated. Leave unknown fact text empty with no references. Do not treat narrative deficiencies as tested exceptions without distinguishing them. If source_id is bridge, extract bridge fields and management representations only; do not label them as service-auditor testing. Preserve every distinct CUEC in the report wording. Include limitations on interpreting tables, coverage, or missing context. No speculative current control mapping yet.', EXTRACT_SCHEMA, {'context': context, 'document': section})
         return source_doc, units, section, result
 
-    workers = min(3, len(groups))
+    # Large report chunks can consume substantial tokens; two workers balance speed with API rate limits.
+    workers = min(2, len(groups))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='soc-sections') as pool:
         extracted_groups = list(pool.map(extract_group, enumerate(groups, 1)))
     for source_doc, units, section, result in extracted_groups:
