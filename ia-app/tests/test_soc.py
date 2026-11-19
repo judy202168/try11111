@@ -127,6 +127,10 @@ class RouteTests(unittest.TestCase):
     def test_required_files_and_configuration(self):
         response = self.client.post('/api/soc/reviews', data={'title':'Verification','review_year':'2026','consent':'yes'})
         self.assertEqual(response.status_code,400)
+        response = self.client.post('/api/soc/reviews', data={'title':'Verification','review_year':'2026','consent':'yes','soc':(io.BytesIO(b'%PDF bridge'),'Rippling_Bridge_Ltr_May_2026.pdf'),'rcm':(io.BytesIO(b'controls'),'rcm.txt')})
+        self.assertEqual(response.status_code,400)
+        self.assertIn('bridge letter', response.json['error'].lower())
+        self.assertIn('upload the complete soc report', response.json['error'].lower())
         with patch.dict(os.environ, {'OPENAI_API_KEY':''}):
             self.assertEqual(self.client.post('/api/soc/reviews').status_code,503)
         self.assertEqual(self.client.post('/api/soc/reviews/unknown/sheet').status_code,401)
