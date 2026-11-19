@@ -172,14 +172,15 @@ def ask_ai(stage, schema, payload):
     schema_guide = (BASE / 'references' / 'review-schema.md').read_text(encoding='utf-8')
     # Reserving an unnecessarily large completion on every chunk can itself trigger TPM 429s.
     # These strict schemas fit comfortably within the stage-specific limits below.
-    max_output_tokens = 10000 if schema is EXTRACT_SCHEMA else 7000 if schema in (POPULATION_SCHEMA, MAP_SCHEMA) else 5000
+    max_output_tokens = 6000 if schema is EXTRACT_SCHEMA else 5000 if schema in (POPULATION_SCHEMA, MAP_SCHEMA) else 4000
     request_data = {'model': os.environ.get('SOC_REVIEW_MODEL', os.environ.get('OPENAI_MODEL', 'gpt-4.1')), 'store': False,
                     'instructions': SAFETY + '\n\n' + instructions + '\n\n' + schema_guide + '\n\nCURRENT TASK:\n' + stage,
                     'input': json.dumps(payload, ensure_ascii=False), 'max_output_tokens': max_output_tokens,
                     'text': {'format': {'type': 'json_schema', 'name': 'soc_review', 'strict': True, 'schema': schema}}}
     try:
         response = None
-        for attempt in range(5):
+        retry_schedule = (2, 5, 10, 20, 45, 60, 60, 60, 60, 60, 60)
+        for attempt in range(12):
             response = requests.post('https://api.openai.com/v1/responses', json=request_data, headers={'Authorization': 'Bearer ' + key}, timeout=(15, 180))
             if response.ok:
                 break
@@ -190,13 +191,22 @@ def ask_ai(stage, schema, payload):
                 pass
             if response.status_code == 429 and error_code == 'insufficient_quota':
                 raise ReviewError('The OpenAI API account has no available quota. Add billing or usage capacity, then retry the review.')
-            if response.status_code not in (429, 500, 502, 503, 504) or attempt == 4:
+            if response.status_code not in (429, 500, 502, 503, 504) or attempt == 11:
+                if response.status_code == 429:
+                    raise ReviewError('The OpenAI API rate limit remained active after extended automatic retries. The uploaded files are valid, but this API project needs a higher usage tier or a later retry.')
                 raise ReviewError(f'AI service returned HTTP {response.status_code}. Check the API key, model access, quota, and input size. Retry the review.')
             retry_after = response.headers.get('Retry-After', '')
             try:
-                delay = min(30.0, max(1.0, float(retry_after)))
+                delay = min(120.0, max(1.0, float(retry_after)))
             except (TypeError, ValueError):
-                delay = (2, 5, 10, 20)[attempt]
+                delay = retry_schedule[attempt]
+            # OpenAI may provide a more accurate token-window reset than Retry-After.
+            reset = response.headers.get('x-ratelimit-reset-tokens', '').strip().lower()
+            reset_parts = re.findall(r'(\d+(?:\.\d+)?)(ms|m|s)', reset)
+            if reset_parts and ''.join(value + unit for value, unit in reset_parts) == reset:
+                multipliers = {'m': 60, 's': 1, 'ms': .001}
+                reset_seconds = sum(float(value) * multipliers[unit] for value, unit in reset_parts)
+                delay = min(120.0, max(delay, reset_seconds))
             time.sleep(delay + random.uniform(0, 1.0))
         output = response.json()
         if output.get('status') != 'completed':
