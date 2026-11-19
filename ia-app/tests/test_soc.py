@@ -153,6 +153,16 @@ class ReviewTests(unittest.TestCase):
             with self.assertRaisesRegex(review.ReviewError, 'incomplete'):
                 review.ask_ai('Test', review.SUMMARY_SCHEMA, {})
 
+    def test_ai_rate_limit_is_retried(self):
+        limited = Mock(ok=False, status_code=429, headers={'Retry-After': '1'})
+        limited.json.return_value = {'error': {'code': 'rate_limit_exceeded'}}
+        completed = Mock(ok=True)
+        completed.json.return_value = {'status': 'completed', 'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': json.dumps(fake_ai('', review.SUMMARY_SCHEMA, {}))}]}]}
+        with patch.dict(os.environ, {'OPENAI_API_KEY':'test'}), patch.object(review.requests, 'post', side_effect=[limited, completed]) as send, patch.object(review.time, 'sleep'):
+            result = review.ask_ai('Test', review.SUMMARY_SCHEMA, {})
+        self.assertEqual(send.call_count, 2)
+        self.assertIn('report_overview', result)
+
 
 class RouteTests(unittest.TestCase):
     def setUp(self):
