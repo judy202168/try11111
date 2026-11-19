@@ -256,6 +256,39 @@ def dedupe(items, key):
     return result
 
 
+def dedupe_subservices(items, limitations):
+    """Keep named organizations only and consolidate aliases/repeated descriptions."""
+    result = []
+    by_key = {}
+    omitted = False
+    for item in items:
+        name = normalized(item.get('name', ''))
+        if not name or name.startswith(('not specified', 'not explicitly', 'unspecified', 'unnamed')) or name in {
+            'subservice organization', 'subservice organizations', 'the subservice organization',
+        }:
+            omitted = True
+            continue
+        acronym = re.search(r'\(([a-z0-9]{2,12})\)', name)
+        key = acronym.group(1) if acronym else re.sub(r'\b(incorporated|inc|llc|ltd|corporation|corp)\b|[^a-z0-9]+', '', name)
+        if name == 'aws' or 'amazon web services' in name:
+            key = 'aws'
+            item['name'] = 'Amazon Web Services, Inc. (AWS)'
+        if key not in by_key:
+            by_key[key] = item
+            result.append(item)
+            continue
+        existing = by_key[key]
+        for ref in item['references']:
+            if ref not in existing['references']:
+                existing['references'].append(ref)
+        for field in ('scope', 'services', 'impact', 'provider_response', 'evaluation'):
+            if len(item.get(field, '')) > len(existing.get(field, '')):
+                existing[field] = item[field]
+    if omitted:
+        limitations.append('Generic subservice cross-references were not counted as separate organizations; only explicitly named subservice organizations are included.')
+    return result
+
+
 def population_candidates(units):
     """Return likely population pages plus neighbours for a second completeness pass."""
     patterns = (
@@ -354,8 +387,9 @@ def prepare_review(documents, context, progress):
     for section, result in population_results:
         validate_shape(result, POPULATION_SCHEMA)
         merge_population(merged, result, [section])
-    for collection, key in (('exceptions', 'description'), ('cuecs', 'wording'), ('subservices', 'name')):
+    for collection, key in (('exceptions', 'description'), ('cuecs', 'wording')):
         merged[collection] = dedupe(merged[collection], key)
+    merged['subservices'] = dedupe_subservices(merged['subservices'], merged['limitations'])
     for i, cuec in enumerate(merged['cuecs'], 1):
         cuec['id'] = f'CUEC-{i:03d}'
     mapping = []
