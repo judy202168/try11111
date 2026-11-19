@@ -120,11 +120,11 @@ def register_soc(app, read_store, write_store, lock, activity, storage_root):
         if context['reliance_start'] and context['reliance_end'] and context['reliance_start'] > context['reliance_end']:
             return jsonify(error='The reliance end date must be on or after its start date.'), 400
         chosen = []
-        for name, required in (('soc', True), ('rcm', True), ('prior', False), ('bridge', False)):
+        for name, required in (('soc', True), ('rcm', False), ('prior', False), ('bridge', False)):
             file = request.files.get(name)
             if not file or not file.filename:
                 if required:
-                    return jsonify(error='Upload the current SOC report and company RCM. The prior-year review is optional.'), 400
+                    return jsonify(error='Upload the current SOC report. The company RCM, prior-year review, and bridge evidence are optional.'), 400
                 continue
             filename = secure_filename(file.filename)
             suffix = Path(filename).suffix.lower()
