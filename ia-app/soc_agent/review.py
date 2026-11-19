@@ -295,7 +295,7 @@ def dedupe_subservices(items, limitations):
     omitted = False
     for item in items:
         name = normalized(item.get('name', ''))
-        if not name or name.startswith(('not specified', 'not explicitly', 'unspecified', 'unnamed')) or name in {
+        if not name or name.startswith(('not specified', 'not explicitly', 'unspecified', 'unnamed')) or any(marker in name for marker in ('unnamed', 'likely', 'not identified', 'not named', 'unknown')) or name in {
             'subservice organization', 'subservice organizations', 'the subservice organization',
         }:
             omitted = True
@@ -319,6 +319,32 @@ def dedupe_subservices(items, limitations):
     if omitted:
         limitations.append('Generic subservice cross-references were not counted as separate organizations; only explicitly named subservice organizations are included.')
     return result
+
+
+def is_cuec(record, documents):
+    """Reject ordinary provider controls and generic dependency prose mislabeled as CUECs."""
+    wording = normalized(record.get('wording', ''))
+    if not wording or 'responsibility of the subservice organization' in wording:
+        return False
+    if wording.startswith(('the description indicates that certain control objectives', 'certain control objectives specified in the description')):
+        return False
+    responsibility = re.search(r'\b(user entit(?:y|ies)|customers?|clients?|user organizations?)\b.{0,90}\b(responsib\w*|must|required|should)\b', wording)
+    if responsibility:
+        return True
+    for reference in record.get('references', []):
+        for document in documents:
+            if document['id'] != reference.get('source_id'):
+                continue
+            unit = next((unit for unit in document['units'] if unit['locator'] == reference.get('locator')), None)
+            if unit and 'complementary user entity controls' in normalized(unit['text']):
+                return True
+    return False
+
+
+def is_actual_exception(record):
+    """A successful no-deviation test is coverage evidence, not a control exception."""
+    text = normalized(' '.join(str(record.get(key, '')) for key in ('description', 'provider_response', 'evaluation')))
+    return not re.search(r'\bno (?:exceptions?|deviations?) (?:were )?(?:noted|identified|observed)\b', text)
 
 
 def population_candidates(units):
@@ -346,6 +372,11 @@ def merge_population(merged, result, documents):
                     source_text = ' '.join(unit['text'] for document in documents for unit in document['units'])
                     if normalized(record['wording']) not in normalized(source_text):
                         raise ReviewError('CUEC wording was not verified.')
+                    if not is_cuec(record, documents):
+                        raise ReviewError('The candidate is not a user-entity control responsibility.')
+                if collection == 'exceptions' and not is_actual_exception(record):
+                    merged['limitations'].append('A no-exception test result was retained as coverage context but was not counted as a control exception.')
+                    continue
             except ReviewError:
                 merged['limitations'].append(f'An unsupported {collection[:-1]} candidate was omitted because its source reference could not be verified.')
                 continue
@@ -394,6 +425,11 @@ def prepare_review(documents, context, progress):
                         source_text = ' '.join(u['text'] for u in units)
                         if normalized(record['wording']) not in normalized(source_text):
                             raise ReviewError('CUEC wording was not verified.')
+                        if not is_cuec(record, [section]):
+                            raise ReviewError('The candidate is not a user-entity control responsibility.')
+                    if collection == 'exceptions' and not is_actual_exception(record):
+                        merged['limitations'].append('A no-exception test result was retained as coverage context but was not counted as a control exception.')
+                        continue
                 except ReviewError:
                     merged['limitations'].append(f'An unsupported {collection[:-1]} candidate was omitted because its source reference could not be verified.')
                     continue
