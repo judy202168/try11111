@@ -415,8 +415,23 @@ def prepare_review(documents, context, progress):
         if len(records) != len(batch) or {r['cuec_id'] for r in records} != {r['id'] for r in batch}:
             raise ReviewError('CUEC mapping did not reconcile to the full extracted population. Retry; incomplete mapping was not accepted.')
         for record in records:
-            validate_refs(record['references'], [rcm] + ([prior] if prior else []))
-            rcm_quotes = ' '.join(ref['quote'] for ref in record['references'] if ref['source_id'] == 'rcm')
+            try:
+                validate_refs(record['references'], [rcm] + ([prior] if prior else []))
+                rcm_quotes = ' '.join(ref['quote'] for ref in record['references'] if ref['source_id'] == 'rcm')
+                if any(normalized(control_id) not in normalized(rcm_quotes) for control_id in record['control_ids']):
+                    raise ReviewError('A proposed control ID was not supported by the cited RCM.')
+            except ReviewError:
+                record.update(
+                    applicability='Pending — confirm actual service usage and ICFR relevance.',
+                    historical_mapping='Pending — no verified historical mapping was accepted.',
+                    current_mapping='Pending — the proposed RCM mapping was omitted because its source reference could not be verified.',
+                    control_ids=[],
+                    evidence_and_gaps='Review the current RCM manually and document a source-supported mapping for this CUEC.',
+                    references=[],
+                    status='Pending — unverified mapping omitted; human mapping required',
+                )
+                merged['limitations'].append(f'{record["cuec_id"]}: an unverified RCM mapping was omitted instead of failing the full review.')
+                continue
             if not prior:
                 record['historical_mapping'] = 'Not provided — same-system prior-year review was not uploaded.'
             elif not any(ref['source_id'] == 'prior' for ref in record['references']):
@@ -424,8 +439,6 @@ def prepare_review(documents, context, progress):
             if record['current_mapping'] and not any(ref['source_id'] == 'rcm' for ref in record['references']):
                 record['current_mapping'] = 'Pending — no source-supported current mapping established.'
                 record['control_ids'] = []
-            if any(normalized(control_id) not in normalized(rcm_quotes) for control_id in record['control_ids']):
-                raise ReviewError('A proposed control ID was not supported by the cited RCM. Retry; unsupported mapping was not accepted.')
             record['status'] = 'Pending — human validation and current operating evidence required'
         mapping.extend(records)
     progress('Preparing review conclusions', 'Assessing coverage, exceptions, dependencies, changes, and open evidence needs. Human sign-off remains Pending.')
