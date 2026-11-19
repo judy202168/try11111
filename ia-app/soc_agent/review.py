@@ -280,7 +280,7 @@ def merge_population(merged, result, documents):
 
 def prepare_review(documents, context, progress):
     soc = next(d for d in documents if d['id'] == 'soc')
-    rcm = next(d for d in documents if d['id'] == 'rcm')
+    rcm = next((d for d in documents if d['id'] == 'rcm'), None)
     prior = next((d for d in documents if d['id'] == 'prior'), None)
     bridge = next((d for d in documents if d['id'] == 'bridge'), None)
     groups = [(soc, units) for units in chunks(soc['units'])] + ([(bridge, units) for units in chunks(bridge['units'])] if bridge else [])
@@ -326,7 +326,20 @@ def prepare_review(documents, context, progress):
     for i, cuec in enumerate(merged['cuecs'], 1):
         cuec['id'] = f'CUEC-{i:03d}'
     mapping = []
-    for i in range(0, len(merged['cuecs']), 8):
+    if not rcm:
+        mapping = [{
+            'cuec_id': cuec['id'],
+            'applicability': 'Pending — confirm actual service usage and ICFR relevance.',
+            'historical_mapping': 'Not provided — same-system prior-year review was not uploaded.' if not prior else 'Pending — review the uploaded prior-year evidence.',
+            'current_mapping': 'Pending — company RCM was not uploaded.',
+            'control_ids': [],
+            'evidence_and_gaps': 'Upload or review the current company RCM to map this CUEC to relevant controls and procedures.',
+            'references': [],
+            'status': 'Pending — RCM mapping and human validation required',
+        } for cuec in merged['cuecs']]
+        if merged['cuecs']:
+            merged['limitations'].append('Company RCM not provided — CUEC-to-control mappings remain Pending.')
+    for i in range(0, len(merged['cuecs']), 8) if rcm else ():
         batch = merged['cuecs'][i:i+8]
         progress('Mapping CUECs to the RCM', f'Reviewing CUECs {i+1}–{i+len(batch)} of {len(merged["cuecs"])} against current controls and historical evidence.')
         output = ask_ai('Return one mapping for EVERY cuec_id provided. Use only uploaded rcm for proposed current controls. Use prior only for same-system historical reference; verify provider identity before carrying any mapping. A prior review is not current operating evidence. Document new/changed/removed requirements in evidence_and_gaps where supported. Control IDs must literally occur in the cited RCM quotes. Preserve a documented key procedure without fabricating an ID. No matching control means Pending and a specific gap. Applicability is proposed until actual Opendoor use is confirmed. Record evidence, owner-confirmation gaps and follow-ups; never imply current operation was tested from an RCM description alone. Cite all mapping claims with exact quotes. Do not use Addressed as a status.', MAP_SCHEMA, {'context': context, 'provider_facts': merged['facts']['provider'], 'cuecs': batch, 'rcm': rcm, 'prior': prior})
@@ -354,6 +367,8 @@ def prepare_review(documents, context, progress):
     warnings = [w for d in documents for w in d['warnings']]
     if not prior:
         warnings.append('Prior-year review not provided — historical mappings, changes, and prior open issues require confirmation.')
+    if not rcm:
+        warnings.append('Company RCM not provided — current control mappings and control-ID validation were not performed.')
     if not merged['cuecs']:
         warnings.append('No CUECs extracted — confirm the full CUEC population against the report before relying on this review.')
     warnings.extend(merged['limitations'])
