@@ -79,7 +79,7 @@ def register_soc(app, read_store, write_store, lock, activity, storage_root):
     @app.get('/api/soc/config')
     def soc_config():
         current = token_entry()
-        return jsonify(ai_configured=bool(os.environ.get('OPENAI_API_KEY')), google_configured=configured, google_connected=bool(current), google_email=current['email'] if current else None, allowed_domain='opendoor.com', max_file_mb=25, formats=['PDF', 'XLSX', 'CSV', 'DOCX', 'TXT'])
+        return jsonify(ai_configured=bool(os.environ.get('OPENAI_API_KEY')), google_configured=configured, google_connected=bool(current), google_email=current['email'] if current else None, allowed_domain=None, max_file_mb=25, formats=['PDF', 'XLSX', 'CSV', 'DOCX', 'TXT'])
 
     @app.get('/api/soc/reviews')
     def list_reviews():
@@ -167,7 +167,7 @@ def register_soc(app, read_store, write_store, lock, activity, storage_root):
             return redirect('/?google=not-configured#soc')
         callback = os.environ.get('GOOGLE_REDIRECT_URI', request.host_url.rstrip('/') + '/auth/google/callback')
         try:
-            return google.authorize_redirect(callback, hd='opendoor.com', prompt='select_account')
+            return google.authorize_redirect(callback, prompt='select_account')
         except Exception:
             app.logger.warning('Unable to start Google authorization')
             return redirect('/?google=failed#soc')
@@ -177,7 +177,7 @@ def register_soc(app, read_store, write_store, lock, activity, storage_root):
         try:
             token = google.authorize_access_token()
             user = token.get('userinfo', {})  # Authlib verifies signature, issuer, audience, expiry, state and nonce.
-            if user.get('hd') != 'opendoor.com' or user.get('email_verified') is not True or not user.get('email', '').lower().endswith('@opendoor.com'):
+            if user.get('email_verified') is not True or not user.get('email'):
                 return redirect('/?google=domain-denied#soc')
             current_id = secrets.token_urlsafe(32)
             with lock:
@@ -202,7 +202,7 @@ def register_soc(app, read_store, write_store, lock, activity, storage_root):
     def publish_sheet(run_id):
         current = token_entry()
         if not current:
-            return jsonify(error='Connect your Opendoor Google account before creating the review Google Sheet.'), 401
+            return jsonify(error='Connect a Google account before creating the review Google Sheet.'), 401
         with lock:
             data = read_store()
             run = next((r for r in data.get('soc_reviews', []) if r['id'] == run_id), None)
